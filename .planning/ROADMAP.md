@@ -12,6 +12,7 @@
 | 2 | Source Intelligence + AI Guardrails | Star rating system, multi-source pipeline, AI validation | RES-01-05, AI-01-03, SRC-01-04 | 8 criteria |
 | 3 | Bankroll Management + First Strategy | Kelly Criterion, exposure caps, first real strategy | EXEC-04-05, BANK-05 | 5 criteria |
 | 4 | Reliability + Scaling | WebSocket, mutex, graceful shutdown, alerting | MON-05, DEPL-05-06 | 5 criteria |
+| 5 | Betting Cycles + Safety | Cycle management, mutex lock, Telegram interface | MON-05, DEPL-06 | 5 criteria |
 
 ---
 
@@ -69,8 +70,8 @@
 5. Arbitrage detection implemented (binary complement: YES + NO < $1 minus fees)
 
 **Plans:**
-- [ ] 03-01-PLAN.md — Bankroll management (position sizing, exposure caps)
-- [ ] 03-02-PLAN.md — Order execution (slippage, limit orders, arbitrage)
+- [x] 03-01-PLAN.md — Bankroll management (position sizing, exposure caps)
+- [x] 03-02-PLAN.md — Order execution (slippage, limit orders, arbitrage)
 
 ---
 
@@ -85,13 +86,38 @@
 2. Event handler processes incoming events and triggers research/execution pipeline
 3. WebSocket reconnection with exponential backoff on disconnect
 4. Heartbeat (PING/PONG) every 10 seconds to keep connection alive
-5. Telegram command interface for bot control and status queries
+5. Telegram command interface for bot control and status queries (moved to Phase 5)
 
 **Key Insight:** Polymarket WebSocket at `wss://ws-subscriptions-clob.polymarket.com/ws/market` provides real-time market events. No polling needed.
 
 **Plans:**
-- [ ] 04-01-PLAN.md — WebSocket client infrastructure (types, client, events, subscription)
-- [ ] 04-02-PLAN.md — Integration layer and Railway always-on deployment
+- [x] 04-01-PLAN.md — WebSocket client infrastructure (types, client, events, subscription)
+- [x] 04-02-PLAN.md — Integration layer and Railway always-on deployment
+
+---
+
+## Phase 5: Betting Cycles + Safety
+
+**Goal:** Discipline through betting sessions. Prevent duplicate trades via mutex lock. Human control via Telegram.
+
+**Requirements:** MON-05, DEPL-06
+
+**Success Criteria:**
+1. Cycle respects maxBetsPerCycle limit (e.g., 3 bets per cycle)
+2. Cycle waits 24h after all bets resolve before opening new cycle
+3. Same market event never triggers duplicate bet (mutex works)
+4. Telegram bot responds to /status, /cycle, /pause, /resume
+5. Bot can be paused/resumed via Telegram
+
+**Key Design:**
+```
+Cycle: open → closed (max bets) → waiting_24h (all resolved) → open
+Mutex: Prevents duplicate bets on same market from reconnections
+```
+
+**Plans:**
+- [x] 05-01-PLAN.md — Cycle management (max bets, 24h wait) + Mutex lock
+- [ ] 05-02-PLAN.md — Telegram bot interface (status, pause, resume)
 
 ---
 
@@ -102,9 +128,10 @@
 | 1 | ✅ Complete | 3/3 | 100% |
 | 2 | ✅ Complete | 4/4 | 100% |
 | 3 | ✅ Complete | 2/2 | 100% |
-| 4 | ○ Planned | 2/2 | 0% |
+| 4 | ✅ Complete | 2/2 | 100% |
+| 5 | 🚧 In Progress | 1/2 | 05-01 done |
 
-**Overall:** 9/11 plans complete (82%)
+**Overall:** 12/13 plans complete (92%)
 
 ---
 
@@ -120,10 +147,34 @@ Plans:
 ## Phase 2: Plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Source database foundation (SQLite, schema, types, config)
-- [ ] 02-02-PLAN.md — Research adapters (Binance, Google News, Adapter Pattern)
-- [ ] 02-03-PLAN.md — Bayesian confidence scoring and Research Chain
-- [ ] 02-04-PLAN.md — AI integration (MiniMax 2) and sanity check validation
+- [x] 02-01-PLAN.md — Source database foundation (SQLite, schema, types, config)
+- [x] 02-02-PLAN.md — Research adapters (Binance, Google News, Adapter Pattern)
+- [x] 02-03-PLAN.md — Bayesian confidence scoring and Research Chain
+- [x] 02-04-PLAN.md — AI integration (MiniMax 2) and sanity check validation
+
+---
+
+## Phase 3: Plans
+
+Plans:
+- [x] 03-01-PLAN.md — Bankroll management (position sizing, exposure caps)
+- [x] 03-02-PLAN.md — Order execution (slippage, limit orders, arbitrage)
+
+---
+
+## Phase 4: Plans
+
+Plans:
+- [x] 04-01-PLAN.md — WebSocket client infrastructure (types, client, events, subscription)
+- [x] 04-02-PLAN.md — Integration layer and Railway always-on deployment
+
+---
+
+## Phase 5: Plans
+
+Plans:
+- [x] 05-01-PLAN.md — Cycle management (max bets, 24h wait) + Mutex lock
+- [ ] 05-02-PLAN.md — Telegram bot interface (status, pause, resume)
 
 ---
 
