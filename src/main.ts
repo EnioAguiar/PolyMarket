@@ -30,15 +30,26 @@ export async function runBotCycle(): Promise<void> {
   }
   
   logger.info({ step: 'monitor' }, 'Fetching markets from Polymarket');
-  const allMarkets = await fetchMarkets({ limit: 50 });
   
-  const category = process.env.MARKET_CATEGORY || 'crypto';
-  const filteredByCategory = filterByCategory(allMarkets, category);
-  const filteredByTime = filterByTimeHorizon(filteredByCategory, 5, 24);
+  // Calculate date range for 5min to 24h from now
+  const now = new Date();
+  const minDate = new Date(now.getTime() + 5 * 60 * 1000);  // 5 min from now
+  const maxDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24h from now
+  
+  const allMarkets = await fetchMarkets({ 
+    limit: 100,
+    minEndDate: minDate,
+    maxEndDate: maxDate,
+  });
+  console.log('[DEBUG] Total markets fetched:', allMarkets.length);
+  
+  // API already filters by date, no need for extra time filter
+  const filteredByTime = allMarkets;
+  console.log('[DEBUG] Markets after API date filter:', filteredByTime.length);
+  console.log('[DEBUG] Sample markets:', filteredByTime.slice(0,3).map(m => ({ question: m.question?.substring(0, 60), resolveDate: m.resolveDate })));
   
   logger.info({ 
     totalMarkets: allMarkets.length,
-    category,
     filteredByTime: filteredByTime.length,
   }, 'Markets filtered');
   
