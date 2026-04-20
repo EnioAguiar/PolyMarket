@@ -1,0 +1,9 @@
+[cron]
+# Run every 5 minutes (minimum interval)
+# Service starts, executes loop, exits
+expression = "*/5 * * * *"
+disabled = false
+
+[trigger]
+# Name of the service to trigger
+service = "polymarket-bot"
