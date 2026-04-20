@@ -30,6 +30,11 @@
 6. Drawdown kill switch halts all trading on extreme drawdown
 7. Bot deploys to Railway with health checks, secrets management, and structured logging
 
+**Plans:**
+- [x] 01-01-PLAN.md — Project foundation (package.json, tsconfig, config, types, logging)
+- [x] 01-02-PLAN.md — Polymarket API client and safety module
+- [x] 01-03-PLAN.md — Railway deployment and main bot loop
+
 ---
 
 ## Phase 2: Source Intelligence + AI Guardrails
@@ -84,12 +89,21 @@
 
 | Phase | Status | Plans | Progress |
 |-------|--------|-------|----------|
-| 1 | ○ Planned | 0/3 | 0% |
+| 1 | ◆ Planned | 3/3 | 0% |
 | 2 | ○ Planned | 0/4 | 0% |
 | 3 | ○ Planned | 0/2 | 0% |
 | 4 | ○ Planned | 0/2 | 0% |
 
-**Overall:** 0/11 plans complete (0%)
+**Overall:** 3/11 plans complete (27%)
+
+---
+
+## Phase 1: Plans
+
+Plans:
+- [x] 01-01-PLAN.md — Project foundation (package.json, tsconfig, config, types, logging)
+- [x] 01-02-PLAN.md — Polymarket API client and safety module
+- [x] 01-03-PLAN.md — Railway deployment and main bot loop
 
 ---
 
