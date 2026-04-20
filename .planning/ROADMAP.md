@@ -68,6 +68,10 @@
 4. Limit orders placed at specific prices (not just market orders)
 5. Arbitrage detection implemented (binary complement: YES + NO < $1 minus fees)
 
+**Plans:**
+- [ ] 03-01-PLAN.md — Bankroll management (position sizing, exposure caps)
+- [ ] 03-02-PLAN.md — Order execution (slippage, limit orders, arbitrage)
+
 ---
 
 ## Phase 4: Reliability + Scaling
@@ -91,7 +95,7 @@
 |-------|--------|-------|----------|
 | 1 | ◆ Planned | 3/3 | 0% |
 | 2 | ◆ Planned | 0/4 | 0% |
-| 3 | ○ Planned | 0/2 | 0% |
+| 3 | ◆ Planned | 2/2 | 0% |
 | 4 | ○ Planned | 0/2 | 0% |
 
 **Overall:** 3/15 plans complete (20%)
