@@ -90,11 +90,11 @@
 | Phase | Status | Plans | Progress |
 |-------|--------|-------|----------|
 | 1 | ◆ Planned | 3/3 | 0% |
-| 2 | ○ Planned | 0/4 | 0% |
+| 2 | ◆ Planned | 0/4 | 0% |
 | 3 | ○ Planned | 0/2 | 0% |
 | 4 | ○ Planned | 0/2 | 0% |
 
-**Overall:** 3/11 plans complete (27%)
+**Overall:** 3/15 plans complete (20%)
 
 ---
 
@@ -104,6 +104,16 @@ Plans:
 - [x] 01-01-PLAN.md — Project foundation (package.json, tsconfig, config, types, logging)
 - [x] 01-02-PLAN.md — Polymarket API client and safety module
 - [x] 01-03-PLAN.md — Railway deployment and main bot loop
+
+---
+
+## Phase 2: Plans
+
+Plans:
+- [ ] 02-01-PLAN.md — Source database foundation (SQLite, schema, types, config)
+- [ ] 02-02-PLAN.md — Research adapters (Binance, Google News, Adapter Pattern)
+- [ ] 02-03-PLAN.md — Bayesian confidence scoring and Research Chain
+- [ ] 02-04-PLAN.md — AI integration (MiniMax 2) and sanity check validation
 
 ---
 
