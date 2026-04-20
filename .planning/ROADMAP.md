@@ -89,6 +89,10 @@
 
 **Key Insight:** Polymarket WebSocket at `wss://ws-subscriptions-clob.polymarket.com/ws/market` provides real-time market events. No polling needed.
 
+**Plans:**
+- [ ] 04-01-PLAN.md — WebSocket client infrastructure (types, client, events, subscription)
+- [ ] 04-02-PLAN.md — Integration layer and Railway always-on deployment
+
 ---
 
 ## Milestone v1.0
@@ -98,7 +102,7 @@
 | 1 | ✅ Complete | 3/3 | 100% |
 | 2 | ✅ Complete | 4/4 | 100% |
 | 3 | ✅ Complete | 2/2 | 100% |
-| 4 | ○ Planned | 0/2 | 0% |
+| 4 | ○ Planned | 2/2 | 0% |
 
 **Overall:** 9/11 plans complete (82%)
 
