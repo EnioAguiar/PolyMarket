@@ -5,120 +5,150 @@
 ## Naming Patterns
 
 **Files:**
-- Directories: kebab-case (`src/api/`, `src/safety/`)
-- Source files: kebab-case with `index.js` barrel pattern
+- **PascalCase** for TypeScript files: `arbitrage.ts`, `position-sizing.ts`, `slippage.ts`
+- **kebab-case** for directory names: `src/execution/`, `src/bankroll/`, `src/safety/`
+- Barrel files named `index.ts`
 
 **Functions:**
-- camelCase: `fetchMarkets`, `filterByCategory`, `getYesTokenId`, `getMidPrice`, `hasLiquidity`
-- Examples:
-  - `src/api/polymarket.ts`: `fetchMarkets`, `filterByCategory`, `filterByTimeHorizon`, `getYesTokenId`, `getNoTokenId`
-  - `src/api/clob.ts`: `createClobClient`, `getClobClient`, `getOrderBook`, `getBestPrices`, `getMidPrice`, `hasLiquidity`
+- **camelCase**: `calculatePositionSize`, `checkArbitrage`, `getMidPrice`, `isKillSwitchActive`
+- Predicate functions use `is` prefix: `isArbitrage`, `isKillSwitchActive`, `isDryRun`
+- Query functions use `get` prefix: `getLogger`, `getClobClient`, `getMidPrice`, `getMaxPositionSizeForOdds`
+- Check/validation functions: `checkSlippage`, `checkBet`, `checkPositionSize`, `checkDailyLoss`, `checkDrawdown`
 
-**Types/Interfaces:**
-- PascalCase: `Market`, `OrderBook`, `OrderBookEntry`, `SafetyCheckResult`, `BetCheckInput`
-- Examples from `src/types/index.ts`:
-  ```typescript
-  export interface Market { ... }
-  export interface OrderBook { ... }
-  export interface SafetyCheckResult { ... }
-  ```
+**Variables:**
+- **camelCase**: `clobClient`, `orderbook`, `maxPositionSizePct`
+- Constants: **UPPER_SNAKE_CASE** for magic numbers at module level: `FEE_THRESHOLD`, `POLYMARKET_MIN_TOKENS`
+- Interface properties: **camelCase** (from TypeScript defaults)
 
-**Classes:**
-- PascalCase: `SafetyModule`, `DrawdownTracker`, `DailyLossTracker`
-- Examples from `src/safety/`: `SafetyModule`, `DrawdownTracker`, `DailyLossTracker`
+**Types:**
+- **PascalCase** interfaces: `ArbitrageCheckResult`, `SlippageCheckResult`, `PositionSizingInput`, `SafetyModuleConfig`
+- Suffix with purpose: `Input`, `Result`, `Config`, `State`, `Entry`
 
-## Import Organization
+## Code Style
 
-**ES Modules with `.js` extension:**
-```typescript
-import { loadConfig, isDryRun } from './config/index.js';
-import { initLogger, getLogger, logBetDecision } from './logging/index.js';
-import type { Market, SafetyState } from './types/index.js';
-```
+**Formatting:**
+- Tool: Not configured (no Prettier/ESLint config files present)
+- TypeScript strict mode enabled in `tsconfig.json`
+- 2-space indentation
+- Trailing semicolons
 
-**Barrel files:** Each directory has `index.js` that re-exports contents:
-- `src/config/index.ts` → re-exports `loadConfig`, `isDryRun`
-- `src/logging/index.ts` → re-exports `initLogger`, `getLogger`, `logBetDecision`
-- `src/safety/index.ts` → re-exports `SafetyModule`
+**Module System:**
+- ESNext modules (`"type": "module"` in package.json)
+- `.js` extensions in imports: `import { checkArbitrage } from '../src/execution/arbitrage.js'`
+- `moduleResolution: "bundler"` in tsconfig
 
-**Type-only imports:**
-```typescript
-import type { Config, OrderBook, OrderBookEntry } from '../types/index.js';
-import type { SafetyCheckResult, SafetyModuleConfig, BetCheckInput } from './types.js';
-```
+**Import Organization:**
+1. External packages (e.g., `vitest`, `@polymarket/clob-client-v2`, `ethers`, `pino`)
+2. Internal path aliases or relative imports (e.g., `../types/index.js`)
 
 ## Error Handling
 
-**Throwing descriptive errors:**
-```typescript
-// src/api/clob.ts
-throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
-throw new Error('CLOB client not initialized. Call createClobClient(config) first.');
+**Pattern: Early returns with result objects**
 
-// src/config/index.ts
-throw new Error('config.yaml must contain "dryRun" field');
-throw new Error('config.yaml must contain "safety.maxPositionSizePct"');
-```
-
-**Try/catch with graceful degradation:**
 ```typescript
-// src/main.ts - evaluateMarket function
-let orderbook;
-try {
-  orderbook = await getOrderBook(yesTokenId);
-} catch (error) {
+// From src/execution/arbitrage.ts
+if (!bestBid || !bestAsk) {
   return {
-    odds: 0,
-    positionSize: 0,
-    action: 'skip',
-    safetyCheck: 'none',
-    reason: `Failed to fetch orderbook: ${error}`,
+    isArbitrage: false,
+    yesPrice: bestAsk || 0,
+    noPrice: bestBid || 0,
+    combinedPrice: 0,
+    feeThreshold: FEE_THRESHOLD,
+    profitPct: 0,
+    reason: 'Insufficient orderbook data',
   };
 }
 ```
 
-**Error logging with context:**
+**Pattern: Try-catch with string interpolation in error message**
+
 ```typescript
-// src/main.ts
-catch (error) {
+// From src/main.ts
+try {
+  const decision = await evaluateMarket(market, safetyModule, config);
+} catch (error) {
   logger.error({ marketId: market.id, error }, 'Error processing market');
 }
 ```
 
-## Logging Patterns
+**Pattern: Guard clauses at function start**
+
+```typescript
+// From src/api/clob.ts
+export function createClobClient(config: Config): ClobClient {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
+  }
+  // ... rest of function
+}
+```
+
+**Pattern: Nullable returns**
+
+```typescript
+// From src/api/clob.ts
+export function getMidPrice(orderbook: OrderBook): number | null {
+  const { bestBid, bestAsk } = getBestPrices(orderbook);
+  if (bestBid === null || bestAsk === null) return null;
+  return (bestBid + bestAsk) / 2;
+}
+```
+
+## Logging
 
 **Framework:** Pino (`pino@^10.0.0`)
 
-**Structured logging with object prefix:**
-```typescript
-// src/logging/index.ts
-logger = pino({
-  level: config.logging.level || 'debug',
-  transport,
-  base: {
-    service: 'polymarket-bot',
-  },
-  timestamp: pino.stdTimeFunctions.isoTime,
-});
+**Initialization pattern:**
 
-// Usage in src/main.ts
-logger.info({ dryRun: config.dryRun }, 'Bot cycle starting');
+```typescript
+// From src/logging/index.ts
+export function initLogger(config: Config): pino.Logger {
+  const transport = config.logging.pretty
+    ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard', ignore: 'pid,hostname' } }
+    : undefined;
+
+  logger = pino({
+    level: config.logging.level || 'debug',
+    transport,
+    base: { service: 'polymarket-bot' },
+    timestamp: pino.stdTimeFunctions.isoTime,
+  });
+  return logger;
+}
+```
+
+**Usage patterns:**
+
+```typescript
+// Structured logging with object + message
+logger.info({ dryRun: config.dryRun, msg: 'Polymarket Bot starting' });
+
+// With step context
+logger.info({ step: 'monitor' }, 'Fetching markets from Polymarket');
+
+// Error with context
+logger.error({ marketId: market.id, error }, 'Error processing market');
+
+// Warn with msg prefix
 logger.warn({ msg: 'KILL SWITCH ACTIVE - bot halted' });
-logger.error({ error, msg: 'Fatal error in bot cycle' });
 ```
 
-**Custom log helpers:**
+**Specialized log helpers:**
+
 ```typescript
-// src/logging/index.ts
-export function logBetDecision(decision: { marketId: string; ... }): void
-export function logSafetyCheck(result: { passed: boolean; ... }): void
+// From src/logging/index.ts
+export function logBetDecision(decision: {...}): void {
+  getLogger().info({...}, `Bet decision: ${decision.action}`);
+}
 ```
 
-## JSDoc Usage
+## JSDoc Comments
 
-**Function documentation:**
+**Used for documentation on exported functions:**
+
 ```typescript
-// src/api/clob.ts
+// From src/api/clob.ts
 /**
  * Initialize the CLOB client (EXEC-01: wallet connection)
  * Requires PRIVATE_KEY and FUNDER_ADDRESS environment variables
@@ -131,31 +161,50 @@ export function createClobClient(config: Config): ClobClient { ... }
 export async function getOrderBook(tokenId: string): Promise<OrderBook> { ... }
 ```
 
-**Class documentation:**
-```typescript
-// src/safety/index.ts
-/**
- * Main safety module class (per D-03: dedicated module separate from execution flow)
- * Coordinates all safety checks for betting decisions
- */
-export class SafetyModule { ... }
+## Class Patterns
 
-// src/safety/drawdown.ts
-/**
- * Track total drawdown and trigger kill switch if exceeded (BANK-03)
- */
-export class DrawdownTracker { ... }
+**Module classes with dependency injection via constructor:**
+
+```typescript
+// From src/safety/index.ts
+export class SafetyModule {
+  private config: SafetyModuleConfig;
+  private dailyLossTracker: DailyLossTracker;
+  private drawdownTracker: DrawdownTracker;
+  private bankroll: number;
+
+  constructor(config: Config, initialState: SafetyState, initialBankroll: number) {
+    this.config = { ... };
+    this.bankroll = initialBankroll;
+    this.dailyLossTracker = new DailyLossTracker(this.config, initialState);
+    this.drawdownTracker = new DrawdownTracker(this.config, initialState, initialBankroll);
+  }
+}
 ```
 
-## Code Style
+## Constants
 
-**Semicolons:** Not used ( ASI assumed)
+**Module-level constants for magic numbers:**
 
-**TypeScript:** Strict typing with interface/type exports
+```typescript
+// From src/execution/arbitrage.ts
+const FEE_THRESHOLD = 0.99; // D-16: YES + NO < $0.99 for arbitrage
 
-**Named exports for utilities, default not used**
+// From src/bankroll/position-sizing.ts
+const POLYMARKET_MIN_TOKENS = 5;
+const POLYMARKET_MIN_USD = 1;
+```
 
-**Functional style for data manipulation, class-based for stateful modules**
+## Type Exports
+
+**Centralized in `src/types/index.ts`:**
+- `Market`, `OrderBook`, `OrderBookEntry` - data types
+- `Config`, `SafetyConfig`, `SafetyState` - configuration/state
+- `BetDecision` - action types
+
+**Module-specific types** in respective `types.ts` files:
+- `src/bankroll/types.ts` - `PositionSizingInput`, `PositionSizingResult`, `BankrollState`
+- `src/safety/types.ts` - `SafetyCheckResult`, `SafetyModuleConfig`, `BetCheckInput`
 
 ---
 

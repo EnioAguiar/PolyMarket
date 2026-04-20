@@ -4,191 +4,169 @@
 
 ## Security Concerns
 
-**Wallet Private Key in Memory:**
-- `src/api/clob.ts:12-17` reads `PRIVATE_KEY` directly from `process.env`
-- Key loaded into `ethers.Wallet` and held in memory for signing
-- No encryption at rest or in memory for wallet keys
-- If process is compromised, key is exposed
-- **Recommendation:** Use hardware wallet or encrypted key file. Consider BLSigner or similar for production.
+### Private Key Exposure via Environment Variables
+- **Files:** `src/api/clob.ts:12-17`
+- **Issue:** `PRIVATE_KEY` read directly from `process.env` without validation. If logged or mishandled, wallet private key is exposed.
+- **Current:** Throws error if missing, but key must be set in Railway environment variables.
+- **Risk:** Key could be inadvertently logged via pino's default serialization if error objects contain env vars.
+- **Recommendation:** Validate key format before use, never log full key.
 
-**Environment Variable Secrets:**
-- `config.yaml` notes "All configuration is managed through this file (not env vars)"
-- But `PRIVATE_KEY` and `FUNDER_ADDRESS` are env vars (see `src/api/clob.ts:12` comment)
-- No validation of private key format before passing to ethers
-- **Recommendation:** Add format validation for private key. Document required env vars clearly.
+### Hardcoded Demo API Key
+- **File:** `src/ai/chain.ts:12`
+- **Issue:** `new MiniMaxAI(process.env.MINIMAX_API_KEY || 'demo-key')` silently falls back to `'demo-key'`.
+- **Risk:** If `MINIMAX_API_KEY` is unset, the bot uses a fake key without alerting operators.
+- **Recommendation:** Fail fast if required API keys are missing.
 
-**CLOB Client Singleton:**
-- `src/api/clob.ts:5` uses module-level singleton `let clobClient: ClobClient | null = null`
-- Client persists until process restart, but wallet signing key remains in memory
-- **Risk:** Client could be used after key rotation without re-initialization
+### API Credentials via Environment (Google)
+- **File:** `src/research/google.ts:13-14`
+- **Issue:** `GOOGLE_API_KEY` and `GOOGLE_SEARCH_ENGINE_ID` are checked at runtime via `isAvailable()`, but no error is thrown if missing.
+- **Risk:** Silent failure of Google research source if credentials not configured.
+
+### Config File Contains Production Settings
+- **File:** `config.yaml`
+- **Issue:** Contains `dryRun: true` but also real Polymarket endpoints (`host: "https://clob.polymarket.com"`, `chainId: 137`).
+- **Risk:** If accidentally set to `dryRun: false`, bot would attempt real trades.
+- **Recommendation:** Separate dry-run config from production config, require explicit flag.
 
 ---
 
 ## Reliability Concerns
 
-**Safety State Not Persistent:**
-- `SafetyModule` in `src/safety/index.ts` tracks daily loss, drawdown, and kill switch in memory
-- `DrawdownTracker` in `src/safety/drawdown.ts:10` stores `peakBankroll` in memory
-- `DailyLossTracker` in `src/safety/daily-loss.ts:10` tracks session date in memory
-- **Problem:** On Railway cron restart, all safety state resets. Bot could execute trades that exceed daily loss or drawdown limits because state is blank.
-- **Impact:** BANK-02 and BANK-03 protections ineffective across restarts
+### Hardcoded Bankroll Values
+- **Files:**
+  - `src/main.ts:24` - `const initialBankroll = 1000;`
+  - `src/main.ts:150` - `const bankroll = 1000;`
+- **Issue:** Bankroll is hardcoded to 1000 instead of loading from persistent state or config.
+- **Impact:** Safety calculations use wrong bankroll, position sizing is incorrect.
+- **Recommendation:** Load from database or config.
 
-**No Bankroll Persistence:**
-- Bankroll hardcoded as `1000` in `src/main.ts:24` and `src/main.ts:150`
-- No database or file storage for actual bankroll
-- `SafetyModule.recordTrade()` exists but is never called in `main.ts`
-- **Impact:** No tracking of actual P&L. Safety module uses fictional bankroll.
+### In-Memory Safety State (Not Persisted)
+- **File:** `src/safety/index.ts`
+- **Issue:** Safety state (`dailyLoss`, `totalDrawdown`, `isKillSwitchActive`) exists only in memory.
+- **Impact:** Restarting the bot resets all safety tracking. Kill switch state lost.
+- **Recommendation:** Persist to PostgreSQL database.
 
-**No Retry Logic:**
-- `src/api/polymarket.ts:30-33` throws on any HTTP failure
-- `src/api/clob.ts:40-54` propagates orderbook errors with no retry
-- Network blips or rate limits cause entire cycle to fail
-- **Impact:** Missed trading opportunities, no resilience
+### SQLite Database on Ephemeral Filesystem
+- **Files:** `src/db/index.ts:6`, `src/db/push.ts`
+- **Issue:** `DB_PATH = resolve(process.env.DATA_DIR || './data', 'sources.db')` writes to local filesystem.
+- **Impact:** On Railway, `./data` is in the container's ephemeral filesystem. Data is lost on every redeploy.
+- **Recommendation:** Use Railway's PostgreSQL template for persistence.
 
-**Error Handling Too Broad:**
-- `src/main.ts:72-86` catches errors at market level but only logs them
-- Continues to next market, but no backoff or circuit breaker
-- One malformed market could cause cascade issues
-- **Impact:** Silent degradation
+### WebSocket Reconnection Logic Incomplete
+- **File:** `src/research/binance.ts:14-15,69-71`
+- **Issue:** `maxReconnectAttempts = 3` but `reconnectAttempts` is never incremented. `isAvailable()` always returns true if reconnectAttempts < 3.
+- **Impact:** WebSocket failures won't trigger proper reconnection.
 
-**Missing `lastTradeTime` Implementation:**
-- `src/types/index.ts:56` defines `lastTradeTime?: Date` in SafetyState
-- Never populated or used anywhere in safety module
-- **Impact:** No time-based safety rules possible
+### Error Swallowing in Market Loop
+- **File:** `src/main.ts:84-86`
+- **Issue:** Catch block logs error but continues processing other markets.
+- **Impact:** One bad market doesn't stop the cycle, but errors aren't propagated for alerting.
 
 ---
 
-## Missing Pieces (Phase 2+ Not Implemented)
+## Missing Pieces (Phase 4 Not Implemented)
 
-**Phase 2 Requirements (Not Started):**
-- Source database (SQLite/Postgres) — RES-01
-- Research adapters (Binance, news APIs) — RES-02 to RES-05
-- Star rating system (★1-5) — SRC-01 to SRC-04
-- AI integration (probability estimates) — AI-01 to AI-03
-- Weighted confidence scoring — AI-04
+### Research Phase Not Wired to Main Loop
+- **File:** `src/main.ts:73`
+- **Issue:** `evaluateMarket()` never calls `ResearchChain` or `AIChain`. The `research/` and `ai/` modules exist but are never invoked from `runBotCycle()`.
+- **Evidence:** `evaluateMarket()` returns `action: 'monitor'` (line 172) with reason "Phase 1 - monitoring only, no execution".
+- **Impact:** Bot only fetches markets and checks liquidity/safety, never performs actual research.
 
-**Phase 3 Requirements (Not Started):**
-- Kelly Criterion position sizing — BANK-05
-- Category exposure caps — EXEC-04
-- Slippage protection — EXEC-04
-- Limit orders (not just market orders) — EXEC-04
-- Arbitrage detection — EXEC-05
+### Execution Module Never Called
+- **Files:** `src/execution/limit-orders.ts`, `src/execution/slippage.ts`, `src/execution/arbitrage.ts`
+- **Issue:** Functions `placeLimitOrder`, `placeMarketOrder`, `checkSlippage`, `checkArbitrage` exist but are never imported or called from `main.ts`.
+- **Impact:** Even if `dryRun: false`, no actual order placement code runs.
 
-**Phase 4 Requirements (Not Started):**
-- WebSocket for real-time orderbook — MON-05
-- Multi-instance mutex lock — DEPL-05
-- Graceful shutdown — DEPL-05
-- Alerting (Discord/PagerDuty) — DEPL-06
-- Telegram command interface — DEPL-06
+### Research Sources Not Initialized
+- **Files:** `src/research/binance.ts`, `src/research/google.ts`
+- **Issue:** `BinanceAdapter` and `GoogleAdapter` classes exist but are never instantiated and passed to `ResearchChain`.
+- **Impact:** Even if research phase were wired, no sources would be available.
 
-**Evidence:** Only `main.ts:174` returns `"Phase 1 - monitoring only, no execution"`.
+### Database Schema Push Script
+- **File:** `src/db/push.ts`
+- **Issue:** Manual script to create tables, but no migration system.
+- **Impact:** Schema changes require manual intervention.
 
 ---
 
 ## Known Limitations
 
-**Dry-Run Only Mode:**
-- `config.yaml:4` has `dryRun: true` hardcoded
-- `src/main.ts:14-17` only creates CLOB client when `!dryRun`
-- `src/api/clob.ts` comment says "wallet connection" but never actually connects in current mode
-- **Impact:** No real trading possible without code changes
+### Dry-Run Mode Only
+- **File:** `config.yaml:4`
+- **Current State:** `dryRun: true` - all decisions are logged but no trades executed.
+- **Impact:** Bot is for monitoring only, cannot generate real P&L.
 
-**No NO Token Evaluation:**
-- `src/main.ts:64` only gets YES token ID
-- `src/api/polymarket.ts:76-78` has `getNoTokenId()` but it's never called
-- Bot only considers buying YES, never selling/shorting NO
-- **Impact:** Half the market opportunities missed
+### Safety Module Skips All Checks in Dry-Run
+- **File:** `src/safety/index.ts:34-40`
+- **Issue:** `checkBet()` returns `passed: true` immediately if `isDryRun` is true, bypassing all safety checks.
+- **Impact:** Safety logic is untested in real conditions.
 
-**Basic Pricing Only:**
-- `src/api/clob.ts:70-74` calculates mid-price from best bid/ask
-- No arbitrage detection (Phase 3 requirement)
-- No slippage modeling
-- No liquidity-adjusted pricing
-- **Impact:** Orders may execute at unfavorable prices
+### Hardcoded Polymarket Constants
+- **Files:**
+  - `src/bankroll/position-sizing.ts:3-4` - `POLYMARKET_MIN_TOKENS = 5`, `POLYMARKET_MIN_USD = 1`
+- **Issue:** Minimum trade sizes hardcoded, not from API or config.
 
-**No Source Quality Enforcement:**
-- `src/main.ts:92-176` `evaluateMarket()` has no research step
-- No star ratings checked
-- No minimum 10 sources requirement
-- **Impact:** Betting decisions without proper research (Phase 1 success criteria #3 states "Minimum 10 sources gathered before any bet decision" but not implemented)
+### No Input Validation on Config
+- **File:** `src/config/index.ts:10-16`
+- **Issue:** Only checks `dryRun` and `safety.maxPositionSizePct` exist. Other fields silently use defaults or undefined behavior.
 
 ---
 
 ## Technical Debt
 
-**Debug Console Logs:**
-- `src/main.ts:44,48,49` — `console.log('[DEBUG] ...')`
-- `src/api/polymarket.ts:28,36` — `console.log('[DEBUG] ...')`
-- Not using structured logger (Pino)
-- **Impact:** Inconsistent logging, hard to filter in production
+### Duplicate Comment Block
+- **File:** `src/bankroll/index.ts:27-31`
+- **Issue:** Same comment block appears twice with `D-01 to D-08` reference.
 
-**Hardcoded Bankroll:**
-- `src/main.ts:24` and `src/main.ts:150` hardcode `1000`
-- No config option for initial bankroll
-- **Impact:** Cannot adjust for different capital sizes without code changes
+### Self-Import in Research Confidence
+- **File:** `src/research/confidence.ts:2`
+- **Issue:** Imports type from `./interface.js` but also exports `ConfidenceResult` interface in same file (line 4-11), creating confusion.
 
-**Unused Interface Field:**
-- `src/types/index.ts:56` `lastTradeTime?: Date` never set
-- `src/safety/types.ts` `BetCheckInput` has no timestamp field
-- **Impact:** Dead code, potential confusion
+### Research Quality Not Implemented
+- **File:** `src/bankroll/position-sizing.ts:14-18`
+- **Issue:** `researchQuality` parameter expects `'low' | 'medium' | 'high'` but no code calculates this quality score.
 
-**No Input Validation:**
-- `src/config/index.ts:10-16` only checks required fields exist
-- No type validation (e.g., `dryRun` could be string "true")
-- `src/api/polymarket.ts:35-51` blindly trusts Gamma API response shape
-- **Impact:** Malformed data could cause runtime errors
+### Category Exposure Calculation Bug
+- **File:** `src/bankroll/exposure-caps.ts:33`
+- **Issue:** `newPct = newTotalValue` - should be divided by bankroll. `currentPct` stored as absolute value, not percentage.
+- **Impact:** Exposure cap checks may not work correctly.
 
-**CLOB Client Error on Dry-Run:**
-- `src/api/clob.ts:11-14` throws if `PRIVATE_KEY` missing
-- But dry-run mode doesn't need CLOB client
-- However, `getOrderBook()` at `src/api/clob.ts:40` calls `getClobClient()` which will throw
-- `main.ts:118` calls `getOrderBook()` even in dry-run (needs client for market data)
-- **Impact:** Confusing error flow in dry-run mode
+### Limit Order Polling Busy-Waits
+- **File:** `src/execution/limit-orders.ts:40-64`
+- **Issue:** `while (Date.now() - startTime < timeoutMs)` with 100ms sleep is CPU-inefficient polling.
+- **Impact:** High CPU usage during limit order waiting period.
 
-**Drawdown Peak Never Updates After Loss:**
-- `src/safety/drawdown.ts:18-22` only updates peak if `currentBankroll > peakBankroll`
-- After a loss, peak stays at previous high
-- But if bankroll never exceeds peak again, drawdown kill switch could trigger incorrectly
-- **Impact:** Potential false kill switch activation after recovery
+### No Test Coverage for Critical Paths
+- **Files:** All execution paths lack tests.
+- **Impact:** Safety module, position sizing, and execution logic cannot be safely modified.
 
----
+### Single TODOs Found
+- **File:** `src/ai/minimax.ts:126`
+- **Content:** `// TODO: Implement actual MiniMax API call when API key is available`
+- **Impact:** AI estimation uses Bayesian fallback instead of actual LLM.
 
-## Test Coverage Gaps
+### Railway Deployment Restart Policy
+- **File:** `railway.json:11-12`
+- **Issue:** `restartPolicyType: ON_FAILURE` with `restartPolicyMaxRetries: 3` - if bot crashes repeatedly, Railway stops restarting it.
+- **Impact:** Long-running degradation if bot enters crash loop.
 
-**No Tests Found:**
-- `package.json:9` has `"test": "vitest"` script
-- But no test files found via glob
-- **Impact:** No regression protection, safety-critical code untested
-
-**Priority:** High — Safety module (BANK-01, BANK-02, BANK-03) should have unit tests
-
----
-
-## Configuration Gaps
-
-**No Environment-Specific Overrides:**
-- `config.yaml` is static, no env var interpolation
-- Railway secrets cannot override specific values
-- **Impact:** Cannot change safety limits per environment without redeploy
-
-**Missing Polymarket Config:**
-- `config.yaml:11-14` has `polymarket.host`, `gammaHost`, `chainId`
-- But `FUNDER_ADDRESS` mentioned in `src/api/clob.ts:9` comment is not in config or types
-- **Impact:** Incomplete configuration documentation
+### Order Book Type Casting
+- **File:** `src/api/clob.ts:46-53`
+- **Issue:** Assumes `bid.price` and `bid.size` are strings or numbers, parses them. API response structure not fully validated.
+- **Risk:** Runtime error if API returns unexpected format.
 
 ---
 
 ## Summary Table
 
-| Category | Severity | Files | Issue |
-|----------|----------|-------|-------|
-| Safety state persistence | HIGH | `src/safety/*.ts` | State lost on restart |
-| Bankroll persistence | HIGH | `src/main.ts` | Hardcoded fictional value |
-| No tests | HIGH | (none) | Safety critical code untested |
-| Wallet key security | MEDIUM | `src/api/clob.ts` | Key in memory unencrypted |
-| Phase 2+ not implemented | MEDIUM | (none) | Core functionality missing |
-| Debug logs not structured | LOW | `src/main.ts`, `src/api/polymarket.ts` | Inconsistent logging |
-| Hardcoded bankroll | LOW | `src/main.ts` | Inflexible configuration |
+| Category | Count | Critical Issues |
+|----------|-------|-----------------|
+| Security | 4 | Private key handling, demo key fallback |
+| Reliability | 5 | Hardcoded bankroll, in-memory state, SQLite on ephemeral fs |
+| Missing Pieces | 4 | Research not wired, execution not called, sources not initialized |
+| Limitations | 4 | Dry-run only, safety bypassed in dry-run |
+| Technical Debt | 9 | Duplicate code, bugs, missing tests, TODO items |
+| **Total** | **26** | |
 
 ---
 

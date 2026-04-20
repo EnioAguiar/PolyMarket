@@ -6,148 +6,131 @@
 
 **Primary:**
 - TypeScript 5.4+ - Core language for all bot logic
-- Node.js 20.10+ - Runtime environment
+- Node.js ≥20.10.0 - Runtime (ESM modules with `"type": "module"`)
 
 ## Runtime
 
 **Environment:**
-- Node.js 20.x LTS via Railway NIXPACKS builder (`railway.json`)
-- ES Modules (`"type": "module"` in `package.json`)
-
-**Package Manager:**
-- npm (via `package-lock.json`)
-
-## Core Dependencies
-
-### TypeScript/Build
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `typescript` | ^5.4.0 | TypeScript compiler |
-| `ts-node` | ^10.9.0 | TypeScript execution (`--loader ts-node/esm`) |
-
-### Polymarket Integration
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `@polymarket/clob-client-v2` | latest | CLOB trading client for order execution |
-| `ethers` | ^5.8.0 | Wallet signing, Ed25519 signatures (NOT v6) |
-
-### Logging
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `pino` | ^10.0.0 | Structured JSON logging |
-| `pino-pretty` | ^13.0.0 | Human-readable dev logging |
-
-### Configuration
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `yaml` | ^2.0.0 | Parse `config.yaml` |
-
-## Dev Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `vitest` | ^1.0.0 | Unit testing framework |
-| `eslint` | ^9.0.0 | Linting |
-| `@typescript-eslint/eslint-plugin` | ^8.0.0 | TS ESLint rules |
-| `@typescript-eslint/parser` | ^8.0.0 | TS ESLint parser |
-| `@types/node` | ^22.0.0 | Node.js type definitions |
+- Node.js 20.x LTS via Railway/NIXPACKS
+- ES2022 target, ESNext modules
+- Package manager: npm (package-lock.json present)
 
 ## TypeScript Configuration
 
-**File:** `tsconfig.json`
-
+**Config file:** `tsconfig.json`
 ```json
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "declaration": true,
-    "sourceMap": true
-  }
+  "target": "ES2022",
+  "module": "ESNext",
+  "moduleResolution": "bundler",
+  "strict": true,
+  "esModuleInterop": true,
+  "skipLibCheck": true,
+  "outDir": "./dist",
+  "rootDir": "./src"
 }
 ```
 
-Key settings:
-- `strict: true` - Full type checking enabled
-- `moduleResolution: "bundler"` - For ESM with bundler-style resolution
-- Output to `dist/`, source in `src/`
+**Key settings:**
+- Strict mode enabled
+- Bundler module resolution (not node16 or nodenext)
+- Source maps enabled for debugging
+- Declaration files generated
+
+## Dependencies
+
+### Production Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@polymarket/clob-client-v2` | latest | Polymarket CLOB trading client |
+| `better-sqlite3` | ^12.9.0 | Local SQLite database (Drizzle ORM) |
+| `drizzle-orm` | ^0.45.2 | Type-safe SQL with SQLite |
+| `ethers` | ^5.8.0 | Wallet/signatures for Polymarket (v5 only) |
+| `pino` | ^10.0.0 | Structured JSON logging |
+| `pino-pretty` | ^13.0.0 | Human-readable dev logging |
+| `ws` | ^8.20.0 | WebSocket client (Binance feeds) |
+| `yaml` | ^2.0.0 | YAML config parsing |
+
+### Dev Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@types/better-sqlite3` | ^7.6.13 | TypeScript types |
+| `@types/node` | ^22.0.0 | TypeScript types |
+| `@types/ws` | ^8.18.1 | TypeScript types |
+| `@typescript-eslint/eslint-plugin` | ^8.0.0 | ESLint rules |
+| `@typescript-eslint/parser` | ^8.0.0 | ESLint parser |
+| `eslint` | ^9.0.0 | Linting |
+| `ts-node` | ^10.9.0 | TypeScript execution |
+| `typescript` | ^5.4.0 | TypeScript compiler |
+| `vitest` | ^1.0.0 | Unit testing |
+
+## Build & Execution
+
+**Build command:** `npm run build` → `tsc` → outputs to `dist/`
+
+**Start commands:**
+- `npm start` - Production: `node --loader ts-node/esm src/index.ts`
+- `npm run dev` - Development (same as start)
 
 ## Railway Deployment
 
-**Files:** `railway.json`, `Railway.toml`
+**Config files:**
+- `railway.json` - Build and deploy config
+- `Railway.toml` - Cron schedule
 
-### Build Configuration (`railway.json`)
-```json
-{
-  "build": {
-    "builder": "NIXPACKS",
-    "nixpacks": { "nodeVersion": "20" }
-  },
-  "deploy": {
-    "numReplicas": 1,
-    "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
-  }
-}
-```
+**Build:**
+- Builder: NIXPACKS
+- Node version: 20
 
-### Cron Configuration (`Railway.toml`)
-```toml
-[cron]
-expression = "*/5 * * * *"
-disabled = false
+**Deploy:**
+- Replicas: 1
+- Restart policy: ON_FAILURE (max 3 retries)
 
-[trigger]
-service = "polymarket-bot"
-```
+**Cron:**
+- Expression: `*/5 * * * *` (every 5 minutes, minimum interval)
+- Service exits after each cycle
 
-- **Interval:** 5 minutes (Railway minimum)
-- **Behavior:** Service starts → executes cycle → exits cleanly
-- **Health Check:** `/health` endpoint on port 3000
+**Health Check:**
+- Path: `/health`
+- Interval: 30s, Timeout: 5s, Startup: 30s
 
-## Project Scripts
+## Configuration
 
-| Command | Purpose |
-|---------|---------|
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run start` | Run compiled bot (`node dist/index.js`) |
-| `npm run dev` | Run with ts-node ESM loader |
-| `npm run test` | Run vitest tests |
-| `npm run lint` | ESLint on `src/` |
+**File:** `config.yaml` (YAML, committed to repo)
 
-## File Structure
+Key settings:
+- `dryRun: true` - Log-only mode
+- `safety.*` - Position sizing, loss limits
+- `polymarket.host` - CLOB endpoint
+- `polymarket.gammaHost` - Markets API
+- `polymarket.chainId` - 137 (Polygon mainnet)
+
+**Secrets:** `.env` file (NOT committed)
+- `PRIVATE_KEY` - Wallet EOA private key
+- `FUNDER_ADDRESS` - pUSD/ POL funder address
+- `GOOGLE_API_KEY` - Google Custom Search API
+- `GOOGLE_SEARCH_ENGINE_ID` - Google Search Engine ID
+
+## Source Code Structure
 
 ```
-polymarket/
-├── src/
-│   ├── index.ts          # Entry point, health check server
-│   ├── main.ts           # Bot cycle logic
-│   ├── api/
-│   │   ├── polymarket.ts # Gamma API client
-│   │   └── clob.ts       # CLOB client wrapper
-│   ├── config/
-│   │   └── index.ts      # YAML config loader
-│   ├── logging/
-│   │   └── index.ts      # Pino logger init
-│   ├── safety/
-│   │   ├── index.ts      # SafetyModule class
-│   │   ├── daily-loss.ts  # Daily loss tracker
-│   │   ├── drawdown.ts    # Drawdown tracker
-│   │   └── position-limits.ts
-│   └── types/
-│       └── index.ts      # TypeScript interfaces
-├── config.yaml           # Bot configuration
-├── package.json
-├── tsconfig.json
-├── railway.json          # Railway build config
-└── Railway.toml          # Railway cron config
+src/
+├── index.ts          # Entry point, health server, cron trigger
+├── main.ts           # Bot cycle orchestration
+├── api/
+│   ├── polymarket.ts # Gamma API (markets)
+│   └── clob.ts       # CLOB client (orderbooks, trading)
+├── research/
+│   ├── binance.ts    # Binance WebSocket adapter
+│   └── google.ts     # Google Search API adapter
+├── bankroll/         # Position sizing, exposure caps
+├── safety/           # Kill switches, loss limits
+├── logging/          # Pino logger init
+├── db/               # Drizzle ORM schema
+├── config/           # YAML config loading
+└── types/            # TypeScript interfaces
 ```
 
 ---

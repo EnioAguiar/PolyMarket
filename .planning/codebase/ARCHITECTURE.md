@@ -4,143 +4,167 @@
 
 ## Pattern Overview
 
-**Overall:** Railway Cron-triggered TypeScript Bot with Safety-first Design
+**Overall:** Railway Cron + Event-Driven Research Pipeline
 
 **Key Characteristics:**
-- Single-execution bot cycle (Railway cron triggers, bot runs, exits)
-- Safety-first architecture with dedicated SafetyModule
-- Dry-run mode for testing without executing trades
-- Health check server for Railway monitoring
+- Railway cron triggers execution on 5-minute intervals
+- Single-pass market analysis with safety-gated decisions
+- Research aggregation with Bayesian confidence scoring
+- Dry-run mode by default (no actual trading)
+
+## Execution Model (Railway Cron)
+
+```
+Railway Cron Trigger (every 5 min)
+    │
+    ▼
+src/index.ts: main()
+    │
+    ├── loadConfig()          ← Load config.yaml
+    ├── initLogger()          ← Initialize Pino logger
+    │
+    ▼
+src/main.ts: runBotCycle()
+    │
+    ├── createClobClient()    ← (skip if dryRun)
+    ├── SafetyModule          ← Kill switch check
+    │
+    ├── fetchMarkets()        ← Gamma API (5min-24h markets)
+    │
+    ▼
+For Each Market:
+    │
+    ├── getOrderBook()        ← CLOB API
+    ├── getMidPrice()         ← Calculate odds
+    ├── hasLiquidity()        ← Minimum size check
+    │
+    ├── SafetyModule.checkBet()   ← Position/drawdown checks
+    │
+    └── logBetDecision()      ← Structured logging
+```
+
+**Railway Configuration** (`railway.json`):
+- Health check: `GET /health` on port 3000
+- Restart policy: `ON_FAILURE` (max 3 retries)
+- Builder: `NIXPACKS` with Node 20
 
 ## Layers
 
-**Entry Point (src/index.ts):**
-- Purpose: Bootstrap application, start health server, trigger bot cycle
+**Entry Point (`src/index.ts`):**
+- Purpose: Initialize bot, start health server, trigger cycle
 - Location: `src/index.ts`
-- Contains: HTTP health server, config loading, logger initialization, bot cycle execution
-- Depends on: `src/config/index.js`, `src/logging/index.js`, `src/main.js`
-- Used by: Railway cron (via `node --loader ts-node/esm src/index.ts`)
+- Creates HTTP server for Railway health checks
+- Calls `runBotCycle()` and exits with code
 
-**Main Bot Logic (src/main.ts):**
-- Purpose: Orchestrate market fetching, evaluation, and safety checks
+**Bot Logic (`src/main.ts`):**
+- Purpose: Orchestrate single bot cycle
 - Location: `src/main.ts`
-- Contains: `runBotCycle()` function, `evaluateMarket()` function
-- Depends on: `src/api/polymarket.js`, `src/api/clob.js`, `src/safety/index.js`, `src/config/index.js`
-- Used by: `src/index.js`
+- Fetches markets, evaluates each, logs decisions
+- Currently in **monitor-only mode** (Phase 1)
 
-**API Layer (src/api/):**
-- Purpose: External service integration
-- Location: `src/api/polymarket.ts`, `src/api/clob.ts`
-- Contains:
-  - `polymarket.ts`: Gamma API client for market data
-  - `clob.ts`: CLOB client for orderbook and trading
-- Depends on: `@polymarket/clob-client-v2`, `ethers`
-- Used by: `src/main.ts`
+**API Layer (`src/api/`):**
+- `polymarket.ts` - Gamma API for market listing
+- `clob.ts` - CLOB client for orderbooks and trading
+- Both use native `fetch` for HTTP requests
 
-**Safety Module (src/safety/):**
-- Purpose: Risk management and bet safety checks
-- Location: `src/safety/index.ts` (coordinator), `src/safety/position-limits.ts`, `src/safety/daily-loss.ts`, `src/safety/drawdown.ts`
-- Contains: Position size limits, daily loss tracking, drawdown kill switch
-- Depends on: `src/types/index.js`, `src/config/index.js`
-- Used by: `src/main.ts`
+**Safety Layer (`src/safety/`):**
+- Purpose: Risk management and kill switches
+- Components:
+  - `position-limits.ts` - Max bet size (BANK-01)
+  - `daily-loss.ts` - Daily loss limit (BANK-02)
+  - `drawdown.ts` - Kill switch on 15% drawdown (BANK-03)
+- Entry: `src/safety/index.ts` - `SafetyModule` class
 
-**Configuration (src/config/index.ts):**
-- Purpose: Load and validate config.yaml
-- Location: `src/config/index.ts`
-- Contains: `loadConfig()`, `isDryRun()`
-- Depends on: `config.yaml` file
-- Used by: All modules
+**Research Layer (`src/research/`):**
+- Purpose: Gather signals from external sources
+- `interface.ts` - `ResearchSource`, `ResearchSignal`, `AggregatedResearch`
+- `aggregator.ts` - `ResearchAggregator` class (parallel fetch)
+- Sources: `binance.ts` (WebSocket), `google.ts` (REST API)
+- `confidence.ts` - `BayesianScorer` for weighted confidence
 
-**Logging (src/logging/index.ts):**
-- Purpose: Structured logging with Pino
-- Location: `src/logging/index.ts`
-- Contains: Logger initialization, structured bet decision logging
-- Depends on: `pino`, `pino-pretty`
-- Used by: All modules
+**AI Layer (`src/ai/`):**
+- Purpose: Estimate probability from research signals
+- `chain.ts` - `AIChain` orchestrator
+- `minimax.ts` - `MiniMaxAI` (MiniMax 2 model)
+- `validation.ts` - Estimate validation
 
-**Types (src/types/index.ts):**
-- Purpose: TypeScript type definitions
-- Location: `src/types/index.ts`
-- Contains: `Market`, `OrderBook`, `Config`, `SafetyState`, `BetDecision` interfaces
-- Used by: All modules
+**Bankroll Layer (`src/bankroll/`):**
+- Purpose: Position sizing and exposure tracking
+- Entry: `src/bankroll/index.ts` - `BankrollModule`
+- `position-sizing.ts` - Kelly criterion calculations
+- `exposure-caps.ts` - Per-category exposure limits
+
+**Execution Layer (`src/execution/`):**
+- Purpose: Order placement and slippage checks
+- `limit-orders.ts` - Limit order with market fallback
+- `slippage.ts` - Slippage validation
+- `arbitrage.ts` - Cross-exchange arbitrage detection
+
+**Logging (`src/logging/index.ts`):**
+- Pino logger with `pino-pretty` transport
+- Structured bet decisions via `logBetDecision()`
+- `logSafetyCheck()` for safety events
+
+**Database (`src/db/`):**
+- Drizzle ORM + SQLite (`better-sqlite3`)
+- Schema: `sourceRatings`, `sourceFeeds`, `researchResults`
+- Path: `process.env.DATA_DIR || ./data/sources.db`
+
+**Types (`src/types/`):**
+- `index.ts` - Market, OrderBook, Config, SafetyState
+- `source.ts` - SourceCategory, FeedType, MIN_SOURCES=10
+- `ai.ts` - AIRequest, AIEstimate, ChainOfThoughtEntry
 
 ## Data Flow
 
-**Railway Cron Trigger Flow:**
+**Market Fetching:**
+```
+Gamma API → fetchMarkets() → Market[]
+```
 
-1. Railway cron invokes `node --loader ts-node/esm src/index.ts`
-2. `src/index.ts::main()` executes:
-   ```
-   loadConfig() → initLogger() → startServer() → runBotCycle()
-   ```
-3. Health server starts on port 3000 (for Railway health checks)
-4. `runBotCycle()` executes:
-   ```
-   fetchMarkets() → for each market:
-     getOrderBook() → evaluateMarket() → SafetyModule.checkBet() → logBetDecision()
-   ```
-5. Bot cycle completes, process exits with code 0
-6. Railway skips next run if previous still executing
+**Odds Extraction:**
+```
+CLOB API → getOrderBook() → OrderBook → getMidPrice() → odds
+```
 
-**Market Evaluation Flow:**
+**Bet Decision:**
+```
+Market + OrderBook + SafetyModule
+    ↓
+evaluateMarket() → { action, odds, positionSize, safetyCheck }
+    ↓
+logBetDecision() → Pino structured log
+```
 
-1. Fetch markets from Gamma API (5min-24h horizon)
-2. For each market with YES token:
-   - Fetch orderbook via CLOB API
-   - Check liquidity threshold
-   - Calculate mid-price (odds)
-   - Compute max position size from SafetyModule
-   - Run safety checks (position, daily loss, drawdown)
-   - Log bet decision
-
-## Key Abstractions
-
-**SafetyModule (src/safety/index.ts):**
-- Purpose: Centralized safety coordinator
-- Examples: `SafetyModule.checkBet()`, `SafetyModule.getMaxPositionSizeForOdds()`
-- Pattern: Class with composed trackers (DailyLossTracker, DrawdownTracker)
-
-**ClobClient (src/api/clob.ts):**
-- Purpose: Singleton CLOB client for trading
-- Examples: `createClobClient()`, `getOrderBook()`
-- Pattern: Singleton pattern with lazy initialization
-
-## Entry Points
-
-**Primary Entry:**
-- Location: `src/index.ts`
-- Triggers: Railway cron executing `node --loader ts-node/esm src/index.ts`
-- Responsibilities: Bootstrap, config load, logger init, health server, bot cycle
-
-**Health Check Endpoint:**
-- Path: `/health` (GET)
-- Returns: `{ status: 'healthy'|'initializing', timestamp, service }`
-- Purpose: Railway health check for cron job monitoring
+**Research Pipeline (not yet integrated in main cycle):**
+```
+Market.question → ResearchAggregator
+    ↓
+[BinanceAdapter, GoogleAdapter, ...] (parallel)
+    ↓
+BayesianScorer → AggregatedResearch
+    ↓
+AIChain.run() → AIEstimate
+    ↓
+AIValidator.validate() → validation result
+```
 
 ## Error Handling
 
-**Strategy:** Fail-fast with structured logging
+**Strategy:** Fail-safe with graceful degradation
 
 **Patterns:**
-- Config validation throws on missing required fields (`config.yaml`)
-- Logger must be initialized before use (throws if not)
-- CLOB client throws if not initialized before use
-- Bot cycle catches per-market errors and continues
-- Fatal errors logged and cause `process.exit(1)`
+- Kill switch halts all trading on drawdown threshold
+- Dry-run mode skips actual trading
+- Individual market failures don't halt cycle
+- All errors logged with full context
 
 ## Cross-Cutting Concerns
 
-**Logging:** Pino with structured JSON (pretty mode in dev)
-**Validation:** Config schema enforced at startup
-**Health:** HTTP server on port 3000 with `/health` endpoint
-**Authentication:** Ethers wallet with PRIVATE_KEY env var for CLOB
-
-## Railway Deployment
-
-**Build:** Nixpacks with Node 20
-**Deploy:** Single replica, restart on failure (max 3 retries)
-**Health Check:** GET `/health` every 30s, timeout 5s, startup 30s
-**Cron:** Triggers execution, bot must exit for next run
+**Logging:** Pino (JSON in prod, pretty in dev)
+**Configuration:** `config.yaml` via `loadConfig()`
+**Health Checks:** HTTP server on `/health`
+**Type Safety:** TypeScript strict mode
 
 ---
 
