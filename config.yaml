@@ -1,0 +1,23 @@
+# Polymarket Bot Configuration
+# All configuration is managed through this file (not env vars)
+
+dryRun: true  # true = log decisions only, false = execute real trades
+
+safety:
+  maxPositionSizePct: 0.08    # 8% of bankroll per bet (BANK-01)
+  dailyLossLimitPct: 0.05     # 5% daily loss limit (BANK-02)
+  drawdownKillSwitchPct: 0.15 # 15% total drawdown triggers kill switch (BANK-03)
+
+polymarket:
+  host: "https://clob.polymarket.com"
+  gammaHost: "https://gamma-api.polymarket.com"
+  chainId: 137  # Polygon mainnet
+
+logging:
+  level: "debug"  # debug for verbose logging
+  pretty: true    # human-readable in dev
+
+# Railway deployment settings
+railway:
+  healthCheckPath: "/health"
+  selfPingEnabled: true

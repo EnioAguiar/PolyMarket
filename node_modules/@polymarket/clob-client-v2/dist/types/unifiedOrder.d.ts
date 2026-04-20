@@ -1,0 +1,38 @@
+import type { SignedOrderV1, SignedOrderV2 } from "../order-utils/index.js";
+import type { OrderType } from "./clob.js";
+import type { PostOrdersV1Args, UserMarketOrderV1, UserOrderV1 } from "./ordersV1.js";
+import type { PostOrdersV2Args, UserMarketOrderV2, UserOrderV2 } from "./ordersV2.js";
+export type SignedOrder = SignedOrderV1 | SignedOrderV2;
+export type PostOrdersArgs = {
+    order: SignedOrder;
+    orderType: OrderType;
+};
+export type VersionedSignedOrder = {
+    version: 1;
+    order: SignedOrderV1;
+} | {
+    version: 2;
+    order: SignedOrderV2;
+};
+export type VersionedUserOrder = {
+    version: 1;
+    order: UserOrderV1;
+} | {
+    version: 2;
+    order: UserOrderV2;
+};
+export type VersionedUserMarketOrder = {
+    version: 1;
+    order: UserMarketOrderV1;
+} | {
+    version: 2;
+    order: UserMarketOrderV2;
+};
+export type VersionedPostOrdersArgs = {
+    version: 1;
+    args: PostOrdersV1Args;
+} | {
+    version: 2;
+    args: PostOrdersV2Args;
+};
+export declare function isV2Order(order: SignedOrder | VersionedSignedOrder): order is SignedOrderV2;
