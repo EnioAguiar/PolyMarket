@@ -76,16 +76,18 @@
 
 ## Phase 4: Reliability + Scaling
 
-**Goal:** Operational maturity for production. Ensure bot survives real-world conditions.
+**Goal:** Event-driven real-time architecture. Replace polling with Polymarket WebSocket. Bot connects once, listens for events, reacts instantly.
 
 **Requirements:** MON-05, DEPL-05, DEPL-06
 
 **Success Criteria:**
-1. WebSocket connection for real-time orderbook updates (replaces polling)
-2. Multi-instance mutex lock prevents duplicate trades on restart
-3. Graceful shutdown finishes in-progress trades before stopping
-4. Alerting system notifies on bot failure (Discord/PagerDuty webhook)
+1. Polymarket WebSocket connected (market channel) — receives `new_market`, `price_change`, `best_bid_ask`, `market_resolved`
+2. Event handler processes incoming events and triggers research/execution pipeline
+3. WebSocket reconnection with exponential backoff on disconnect
+4. Heartbeat (PING/PONG) every 10 seconds to keep connection alive
 5. Telegram command interface for bot control and status queries
+
+**Key Insight:** Polymarket WebSocket at `wss://ws-subscriptions-clob.polymarket.com/ws/market` provides real-time market events. No polling needed.
 
 ---
 
@@ -93,12 +95,12 @@
 
 | Phase | Status | Plans | Progress |
 |-------|--------|-------|----------|
-| 1 | ◆ Planned | 3/3 | 0% |
-| 2 | ◆ Planned | 0/4 | 0% |
-| 3 | ◆ Planned | 2/2 | 0% |
+| 1 | ✅ Complete | 3/3 | 100% |
+| 2 | ✅ Complete | 4/4 | 100% |
+| 3 | ✅ Complete | 2/2 | 100% |
 | 4 | ○ Planned | 0/2 | 0% |
 
-**Overall:** 3/15 plans complete (20%)
+**Overall:** 9/11 plans complete (82%)
 
 ---
 
