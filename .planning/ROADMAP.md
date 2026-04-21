@@ -13,6 +13,7 @@
 | 3 | Bankroll Management + First Strategy | Kelly Criterion, exposure caps, first real strategy | EXEC-04-05, BANK-05 | 5 criteria |
 | 4 | Reliability + Scaling | WebSocket, mutex, graceful shutdown, alerting | MON-05, DEPL-05-06 | 5 criteria |
 | 5 | Betting Cycles + Safety | Cycle management, mutex lock, Telegram interface | MON-05, DEPL-06 | 5 criteria |
+| 6 | Research Infrastructure | Research tools (APIs, Crawl4AI), data persistence, Railway volume | RES-06, DEPL-07 | TBD |
 
 ---
 
@@ -175,6 +176,29 @@ Plans:
 Plans:
 - [x] 05-01-PLAN.md — Cycle management (max bets, 24h wait) + Mutex lock
 - [ ] 05-02-PLAN.md — Telegram bot interface (status, pause, resume)
+
+---
+
+## Phase 6: Research Infrastructure
+
+**Goal:** Research tools (APIs, Crawl4AI) and data persistence (Railway volume).
+
+**Requirements:** RES-06, DEPL-07
+
+**Success Criteria:**
+1. Categorized research tools by market type (Crypto, Sports, News, etc)
+2. Railway volume for persistent SQLite storage
+3. Research sources configured and rated (Binance, Google News, Crawl4AI)
+4. Minimum research quality enforced before bet decision
+
+**Key Decisions Needed:**
+- Categories of research tools
+- Data persistence strategy (Railway volume vs managed database)
+- Integration with existing research chain
+
+**Plans:**
+- [ ] 06-01-PLAN.md — Research tools and categorization
+- [ ] 06-02-PLAN.md — Railway volume and persistence
 
 ---
 
