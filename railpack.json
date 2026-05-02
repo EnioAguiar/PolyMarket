@@ -1,9 +1,10 @@
 {
-  "$schema": "https://railpack.com/config.schema.json",
-  "build": {
-    "packages": ["python"]
+  "$schema": "https://schema.railpack.com",
+  "packages": {
+    "python": "3.13"
   },
   "deploy": {
-    "startCommand": "cd python && python -m pip install -r requirements.txt && cd .. && npm start"
+    "startCommand": "cd python && python -m pip install -r requirements.txt && cd .. && npm start",
+    "paths": ["/mise/shims"]
   }
 }
