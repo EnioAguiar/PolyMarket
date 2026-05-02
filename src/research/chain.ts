@@ -2,7 +2,7 @@ import { ClobClient } from '@polymarket/clob-client-v2';
 import type { ResearchSource, AggregatedResearch } from './interface.js';
 import { ResearchAggregator } from './aggregator.js';
 import { BinanceAdapter } from './binance.js';
-import { GoogleAdapter } from './google.js';
+import { NewsDataAdapter } from './newsdata.js';
 import { BayesianScorer, type ConfidenceResult, type ConfidenceInput } from './confidence.js';
 import { SourceCategory, MIN_SOURCES } from '../types/source.js';
 import pino from 'pino';
@@ -11,7 +11,7 @@ const logger = pino({ level: 'debug' });
 
 export interface ResearchChainConfig {
   binanceApiKey?: string;
-  googleApiKey?: string;
+  newsdataApiKey?: string;
 }
 
 export interface ResearchOutput {
@@ -38,13 +38,13 @@ export class ResearchChain {
     // Initialize aggregator with adapters
     this.aggregator = new ResearchAggregator([]);
     
-    // D-18: 2/3 Binance, 1/3 Google
+    // D-18: 2/3 Binance, 1/3 NewsData
     // Register adapters
     const binance = new BinanceAdapter();
-    const google = new GoogleAdapter();
-    
+    const newsdata = new NewsDataAdapter();
+
     this.aggregator.addSource(binance);
-    this.aggregator.addSource(google);
+    this.aggregator.addSource(newsdata);
     
     // BayesianScorer is static-only, no instance needed
     this.scorer = BayesianScorer;
