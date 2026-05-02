@@ -3,6 +3,8 @@ import type { ResearchSource, AggregatedResearch } from './interface.js';
 import { ResearchAggregator } from './aggregator.js';
 import { BinanceAdapter } from './binance.js';
 import { NewsDataAdapter } from './newsdata.js';
+import { TwitterAdapter } from './twitter.js';
+import { RedditAdapter } from './reddit.js';
 import { BayesianScorer, type ConfidenceResult, type ConfidenceInput } from './confidence.js';
 import { SourceCategory, MIN_SOURCES } from '../types/source.js';
 import pino from 'pino';
@@ -12,6 +14,9 @@ const logger = pino({ level: 'debug' });
 export interface ResearchChainConfig {
   binanceApiKey?: string;
   newsdataApiKey?: string;
+  twitterBearerToken?: string;
+  redditClientId?: string;
+  redditClientSecret?: string;
 }
 
 export interface ResearchOutput {
@@ -45,6 +50,22 @@ export class ResearchChain {
 
     this.aggregator.addSource(binance);
     this.aggregator.addSource(newsdata);
+    
+    // Social sources (Phase 7)
+    // Allow env var fallback
+    const twitterToken = config.twitterBearerToken || process.env.TWITTER_BEARER_TOKEN;
+    const redditClientId = config.redditClientId || process.env.REDDIT_CLIENT_ID;
+    const redditClientSecret = config.redditClientSecret || process.env.REDDIT_CLIENT_SECRET;
+    
+    if (twitterToken) {
+      const twitter = new TwitterAdapter();
+      this.aggregator.addSource(twitter);
+    }
+    
+    if (redditClientId && redditClientSecret) {
+      const reddit = new RedditAdapter();
+      this.aggregator.addSource(reddit);
+    }
     
     // BayesianScorer is static-only, no instance needed
     this.scorer = BayesianScorer;

@@ -24,7 +24,7 @@ export class RedditAdapter implements ResearchSource {
       return cached.signal;
     }
 
-    const signal = await this.fetchFromPython(topic);
+    const signal = await this.fetchFromPython(topic, marketTimeHorizon);
 
     // Cache result
     this.cache.set(topic, { signal, expiry: Date.now() + this.cacheTtl });
@@ -32,7 +32,7 @@ export class RedditAdapter implements ResearchSource {
     return signal;
   }
 
-  private fetchFromPython(topic: string): Promise<ResearchSignal> {
+  private fetchFromPython(topic: string, marketTimeHorizon?: number): Promise<ResearchSignal> {
     return new Promise((resolve, reject) => {
       const limit = marketTimeHorizon && marketTimeHorizon <= 60 ? 5 : 10;
       const sort = 'hot'; // Default sort for general research
