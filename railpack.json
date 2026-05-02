@@ -1,0 +1,9 @@
+{
+  "$schema": "https://railpack.com/config.schema.json",
+  "build": {
+    "packages": ["python"]
+  },
+  "deploy": {
+    "startCommand": "cd python && python -m pip install -r requirements.txt && cd .. && npm start"
+  }
+}

@@ -1,1 +1,0 @@
-web: cd python && python -m pip install -r requirements.txt && cd .. && npm start
