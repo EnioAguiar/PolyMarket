@@ -43,6 +43,12 @@ See: .planning/PROJECT.md (updated 2026-04-13)
 
 (None yet)
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260502-sh1 | fix research sources: use newsdata instead of google, and crawl4ai should search first then scrape | 2026-05-02 | dcb1cf9a | [260502-sh1-fix-research-sources-use-newsdata-instea](./quick/260502-sh1-fix-research-sources-use-newsdata-instea/) |
+
 ## Current Work
 
 (None — project initialized, ready for Phase 1)
