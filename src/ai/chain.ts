@@ -36,7 +36,9 @@ export class AIChain {
         posterior: research.bayesianPosterior,
         confidence: research.avgConfidence,
         sourceCount: research.totalSources,
-        avgWeight: 0.5,
+        weightedEvidence: research.bayesianPosterior - 0.5, // Approximate from posterior
+        individualScores: [], // Not available at this level
+        avgWeight: 0.5, // Default value
         meetsMinRating: research.meetsMinSources,
         warnings: research.warnings,
       },
