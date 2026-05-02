@@ -1,189 +1,136 @@
 # External Integrations
 
-**Analysis Date:** 2026-04-19
+**Analysis Date:** 2026-05-02
 
-## Polymarket Integrations
+## APIs & External Services
 
-### Gamma API (Markets Data)
+**Prediction Markets:**
+- **Polymarket CLOB** - Primary trading venue
+  - SDK: `@polymarket/clob-client-v2` (npm)
+  - Auth: Ed25519 signature via `ethers` v5 wallet
+  - Endpoints: `https://clob.polymarket.com` (CLOB), `https://gamma-api.polymarket.com` (Gamma)
+  - Chain: Polygon (chainId 137)
+  - Env vars: `PRIVATE_KEY`, `FUNDER_ADDRESS`
 
-**Purpose:** Fetch available prediction markets
+**AI/LLM:**
+- **MiniMax API** - AI estimation for probability assessment
+  - Model: MiniMax-M2.7
+  - Endpoint: `https://api.minimax.io/anthropic/v1/messages`
+  - Auth: Bearer token (`MINIMAX_API_KEY`)
+  - Used in: `src/ai/minimax.ts`
 
-**Endpoint:** `https://gamma-api.polymarket.com`
+**News & Research:**
+- **NewsData.io** - Real-time news aggregation
+  - Endpoint: `https://newsdata.io/api/1/news`
+  - Auth: API key (`NEWSDATA_API_KEY`)
+  - Free tier: 500 requests/day
+  - Used in: `src/research/newsdata.ts`
 
-**Used in:** `src/api/polymarket.ts`
+**Crypto Markets:**
+- **Binance WebSocket** - Real-time price data
+  - Endpoint: `wss://stream.binance.com:9443/ws`
+  - Auth: None (public WebSocket)
+  - Used in: `src/research/binance.ts`
 
-**Functions:**
-- `fetchMarkets(params)` - Get markets with filtering
-- `filterByCategory()` - Filter by category
-- `filterByTimeHorizon()` - Filter 5min-24h markets
-- `getYesTokenId()` / `getNoTokenId()` - Get token IDs
+**Social Media (via Python scripts):**
+- **Twitter/X API** - Social sentiment
+  - SDK: Tweepy (Python)
+  - Script: `scripts/twitter_scraper.py`
+  - Auth: Bearer token (`TWITTER_BEARER_TOKEN`)
+  - Spawned as subprocess from `src/research/twitter.ts`
 
-**Auth:** None (public API)
+- **Reddit API** - Community discussion
+  - SDK: PRAW (Python)
+  - Script: `scripts/reddit_scraper.py`
+  - Auth: Client ID + Secret (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`)
+  - Spawned as subprocess from `src/research/reddit.ts`
 
-**Code reference:**
-```typescript
-const GAMMA_BASE_URL = 'https://gamma-api.polymarket.com';
-const response = await fetch(url);
-```
+**Web Scraping:**
+- **Crawl4AI** - LLM-friendly web scraping
+  - Script: `scripts/crawl4ai_web.py`
+  - Auth: None (public sites)
+  - Spawned as subprocess from `src/research/crawl4ai.ts`
 
----
+## Data Storage
 
-### CLOB Client (Trading)
+**Database:**
+- **SQLite** - Local file-based database
+  - Driver: `better-sqlite3`
+  - ORM: `drizzle-orm`
+  - Schema: `src/db/schema.ts`
+  - Tables: `source_ratings`, `source_feeds`, `research_results`
+  - Location: SQLite file (path not specified in code)
 
-**Package:** `@polymarket/clob-client-v2`
+**Note:** SQLite is local filesystem storage. On Railway, data persists in container unless using Railway's PostgreSQL template.
 
-**Purpose:** Place orders, fetch orderbooks, execute trades
+## Authentication & Identity
 
-**Host:** `https://clob.polymarket.com`
+**Wallet (Polymarket):**
+- **Ethereum Wallet** - Ed25519 key for signing orders
+  - Library: `ethers` v5
+  - Env vars: `PRIVATE_KEY`, `FUNDER_ADDRESS`
+  - Signature type: EOA (not contract)
 
-**Chain:** Polygon (chainId: 137)
+## Monitoring & Observability
 
-**Auth:** EOA wallet signature (ethers v5 Wallet)
+**Logging:**
+- Framework: `pino` v10 (structured JSON)
+- Pretty printing in dev (`pino-pretty`)
+- Config in `config.yaml`: `logging.level: debug`, `logging.pretty: true`
 
-**Required env vars:**
-- `PRIVATE_KEY` - EOA private key for signing
-- `FUNDER_ADDRESS` - Wallet holding pUSD for trading
+**Health Check:**
+- Railway health endpoint: `/health`
+- Configured in `railway.json`
 
-**Used in:** `src/api/clob.ts`
+## CI/CD & Deployment
 
-**Key functions:**
-- `createClobClient(config)` - Initialize with wallet
-- `getOrderBook(tokenId)` - Fetch orderbook
-- `getMidPrice()` - Calculate mid-price
-- `hasLiquidity()` - Check sufficient size
+**Hosting:**
+- **Railway** - Deployment platform
+  - Config: `railway.json`
+  - Cron jobs via Railway scheduler (minimum 5-minute interval)
+  - Service must EXIT when complete ( Railway skips if previous still running)
 
-**Code reference:**
-```typescript
-import { ClobClient } from '@polymarket/clob-client-v2';
-import { Wallet } from 'ethers';
+**Deployment Flow:**
+1. Build: `npm run build` → `tsc` compiles to `dist/`
+2. Start: `node dist/index.js` or `npm start`
+3. Dev: `npm run dev` → `ts-node/esm src/index.ts`
 
-const signer = new Wallet(privateKey);
-clobClient = new ClobClient({ host, chain, signer });
-```
-
----
-
-## Binance Integration
-
-**Purpose:** Real-time crypto price data via WebSocket
-
-**Type:** WebSocket (public, no auth)
-
-**Endpoint:** `wss://stream.binance.com:9443/ws`
-
-**Used in:** `src/research/binance.ts`
-
-**Adapter class:** `BinanceAdapter` implements `ResearchSource`
-
-**Data fetched:**
-- Price (`s` - symbol, `c` - close price)
-- Volume (`v`)
-- 24h change (`p`, `P`)
-- High/Low (`h`, `l`)
-- Timestamp (`E`)
-
-**Symbol mapping (topic → Binance):**
-- `bitcoin`/`btc` → `btcusdt`
-- `ethereum`/`eth` → `ethusdt`
-- `solana`/`sol` → `solusdt`
-
-**Timeout:** 5 seconds per request
-
-**Code reference:**
-```typescript
-const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws';
-this.ws = new WebSocket(`${BINANCE_WS_URL}/${symbol}@ticker`);
-```
-
----
-
-## Google Search API
-
-**Purpose:** News and web search for market research
-
-**Endpoint:** `https://www.googleapis.com/customsearch/v1`
-
-**Used in:** `src/research/google.ts`
+## Environment Configuration
 
 **Required env vars:**
-- `GOOGLE_API_KEY` - API key for Custom Search
-- `GOOGLE_SEARCH_ENGINE_ID` - Search Engine ID
+| Variable | Purpose |
+|----------|---------|
+| `PRIVATE_KEY` | Ethereum wallet for Polymarket signatures |
+| `FUNDER_ADDRESS` | Wallet address for funding |
+| `MINIMAX_API_KEY` | MiniMax AI inference |
+| `NEWSDATA_API_KEY` | NewsData.io API |
+| `TWITTER_BEARER_TOKEN` | Twitter API authentication |
+| `REDDIT_CLIENT_ID` | Reddit API client ID |
+| `REDDIT_CLIENT_SECRET` | Reddit API client secret |
 
-**Auth:** API key in query string
+**Secrets location:**
+- `.env` file (gitignored)
+- `.env.example` template committed
 
-**Time restrictions:**
-- ≤1h markets: `dateRestrict=h1`
-- ≤6h markets: `dateRestrict=h6`
-- ≤24h markets: `dateRestrict=d1`
+## Webhooks & Callbacks
 
-**Adapter class:** `GoogleAdapter` implements `ResearchSource`
+**Outgoing:**
+- None detected - Bot is pull-based (researches then acts)
 
-**Code reference:**
-```typescript
-const GOOGLE_SEARCH_URL = 'https://www.googleapis.com/customsearch/v1';
-url.searchParams.set('key', apiKey);
-url.searchParams.set('cx', searchEngineId);
-```
+**Incoming:**
+- Railway health check: `GET /health`
 
----
+## Research Source Architecture
 
-## Database
-
-**Type:** SQLite with Drizzle ORM
-
-**Package:** `better-sqlite3` + `drizzle-orm`
-
-**Purpose:** Store source ratings, feeds, and research results
-
-**Schema tables (in `src/db/schema.ts`):**
-- `source_ratings` - Research source metadata
-- `source_feeds` - Feed URLs and types
-- `research_results` - Signals and confidence scores
-
-**Auth:** Local file only (no network exposure)
+| Source | Type | Rating | Subprocess | Env Vars |
+|--------|------|--------|------------|----------|
+| NewsData.io | REST API | ★★★ | No | `NEWSDATA_API_KEY` |
+| Twitter/X | REST API | ★★★ | Yes (tweepy) | `TWITTER_BEARER_TOKEN` |
+| Reddit | REST API | ★★★★ | Yes (praw) | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` |
+| Binance | WebSocket | ★★★★ | No | None |
+| Crawl4AI | Scraper | ★★★ | Yes (crawl4ai) | None |
+| Google | Search | Not implemented | - | - |
 
 ---
 
-## Logging
-
-**Framework:** Pino (`pino` + `pino-pretty`)
-
-**Transport:** pino-pretty for dev, JSON for production
-
-**Configured in:** `src/logging/index.ts`
-
-**Level:** `debug` (configured in `config.yaml`)
-
-**Structured fields:** marketId, odds, positionSize, action, safetyCheck
-
----
-
-## Railway Deployment
-
-**Platform:** Railway (PaaS)
-
-**Secrets (via Railway dashboard, NOT in code):**
-- `PRIVATE_KEY` - Trading wallet
-- `FUNDER_ADDRESS` - Funding wallet
-- `GOOGLE_API_KEY` - Google Search
-- `GOOGLE_SEARCH_ENGINE_ID` - Google CX
-
-**Environment:** Railway injects secrets as env vars
-
-**Health check:** HTTP GET `/health` returns `{"status": "healthy"}`
-
----
-
-## Environment Variables Summary
-
-| Variable | Purpose | Source |
-|----------|---------|--------|
-| `PRIVATE_KEY` | EOA wallet for signing trades | Railway secrets |
-| `FUNDER_ADDRESS` | pUSD/ POL funding wallet | Railway secrets |
-| `GOOGLE_API_KEY` | Google Custom Search API | Railway secrets |
-| `GOOGLE_SEARCH_ENGINE_ID` | Google Search Engine ID | Railway secrets |
-| `PORT` | Health check server port (default 3000) | Railway/env |
-
----
-
-*Integration audit: 2026-04-19*
+*Integration audit: 2026-05-02*

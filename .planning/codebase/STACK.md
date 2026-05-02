@@ -1,138 +1,116 @@
 # Technology Stack
 
-**Analysis Date:** 2026-04-19
+**Analysis Date:** 2026-05-02
 
 ## Languages
 
 **Primary:**
-- TypeScript 5.4+ - Core language for all bot logic
-- Node.js ≥20.10.0 - Runtime (ESM modules with `"type": "module"`)
+- TypeScript 5.4+ - Core bot logic, orchestration, type safety across TS/Python boundary
+- Python 3.11+ - Data processing, ML inference, social media scrapers
+
+**Secondary:**
+- None detected
 
 ## Runtime
 
 **Environment:**
-- Node.js 20.x LTS via Railway/NIXPACKS
-- ES2022 target, ESNext modules
-- Package manager: npm (package-lock.json present)
+- Node.js ≥20.10.0 - TypeScript runtime for core bot
+- Python 3.11+ - For subprocess scripts (Twitter, Reddit, Crawl4AI)
 
-## TypeScript Configuration
+**Package Manager:**
+- npm - Node.js package management
+- Lockfile: `package-lock.json` present
 
-**Config file:** `tsconfig.json`
-```json
-{
-  "target": "ES2022",
-  "module": "ESNext",
-  "moduleResolution": "bundler",
-  "strict": true,
-  "esModuleInterop": true,
-  "skipLibCheck": true,
-  "outDir": "./dist",
-  "rootDir": "./src"
-}
-```
+## Frameworks
 
-**Key settings:**
-- Strict mode enabled
-- Bundler module resolution (not node16 or nodenext)
-- Source maps enabled for debugging
-- Declaration files generated
+**Core:**
+- None - Pure TypeScript with type safety
 
-## Dependencies
+**Trading/Blockchain:**
+- `@polymarket/clob-client-v2` (latest) - Official Polymarket CLOB trading client
+- `ethers` v5.8.0 - Wallet/signatures for Polymarket authentication (NOT v6)
 
-### Production Dependencies
+**AI/LLM:**
+- None (direct API calls) - MiniMax API via HTTP fetch
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `@polymarket/clob-client-v2` | latest | Polymarket CLOB trading client |
-| `better-sqlite3` | ^12.9.0 | Local SQLite database (Drizzle ORM) |
-| `drizzle-orm` | ^0.45.2 | Type-safe SQL with SQLite |
-| `ethers` | ^5.8.0 | Wallet/signatures for Polymarket (v5 only) |
-| `pino` | ^10.0.0 | Structured JSON logging |
-| `pino-pretty` | ^13.0.0 | Human-readable dev logging |
-| `ws` | ^8.20.0 | WebSocket client (Binance feeds) |
-| `yaml` | ^2.0.0 | YAML config parsing |
+**Data Processing:**
+- `better-sqlite3` v12.9.0 - Local SQLite database
+- `drizzle-orm` v0.45.2 - Type-safe SQL with SQLite
 
-### Dev Dependencies
+**WebSocket:**
+- `ws` v8.20.0 - WebSocket client for Binance real-time data
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `@types/better-sqlite3` | ^7.6.13 | TypeScript types |
-| `@types/node` | ^22.0.0 | TypeScript types |
-| `@types/ws` | ^8.18.1 | TypeScript types |
-| `@typescript-eslint/eslint-plugin` | ^8.0.0 | ESLint rules |
-| `@typescript-eslint/parser` | ^8.0.0 | ESLint parser |
-| `eslint` | ^9.0.0 | Linting |
-| `ts-node` | ^10.9.0 | TypeScript execution |
-| `typescript` | ^5.4.0 | TypeScript compiler |
-| `vitest` | ^1.0.0 | Unit testing |
+**Logging:**
+- `pino` v10.0.0 - Structured JSON logging
+- `pino-pretty` v13.0.0 - Human-readable dev logging
 
-## Build & Execution
+**Configuration:**
+- `yaml` v2.0.0 - YAML config parsing
 
-**Build command:** `npm run build` → `tsc` → outputs to `dist/`
+**Testing:**
+- `vitest` v1.0.0 - Unit testing framework
 
-**Start commands:**
-- `npm start` - Production: `node --loader ts-node/esm src/index.ts`
-- `npm run dev` - Development (same as start)
+**Build/Dev:**
+- `typescript` v5.4.0 - TypeScript compiler
+- `ts-node` v10.9.0 - TypeScript execution for dev
+- `eslint` v9.0.0 - Linting with TypeScript support
 
-## Railway Deployment
+## Key Dependencies
 
-**Config files:**
-- `railway.json` - Build and deploy config
-- `Railway.toml` - Cron schedule
+**Critical:**
+- `@polymarket/clob-client-v2` - Polymarket trading execution
+- `ethers` v5 - Wallet/Ed25519 signatures for CLOB auth
+- `drizzle-orm` - Database ORM for source ratings and research results
+- `better-sqlite3` - SQLite driver for Drizzle
 
-**Build:**
-- Builder: NIXPACKS
-- Node version: 20
-
-**Deploy:**
-- Replicas: 1
-- Restart policy: ON_FAILURE (max 3 retries)
-
-**Cron:**
-- Expression: `*/5 * * * *` (every 5 minutes, minimum interval)
-- Service exits after each cycle
-
-**Health Check:**
-- Path: `/health`
-- Interval: 30s, Timeout: 5s, Startup: 30s
+**Infrastructure:**
+- `pino` - Structured logging for Railway deployment
+- `ws` - Real-time Binance price feeds
 
 ## Configuration
 
-**File:** `config.yaml` (YAML, committed to repo)
+**Environment:**
+- `.env` file for secrets (NEVER commit)
+- `config.yaml` for application settings (dry run, safety limits, Polymarket hosts)
+- Railway deployment via `railway.json`
 
-Key settings:
-- `dryRun: true` - Log-only mode
-- `safety.*` - Position sizing, loss limits
-- `polymarket.host` - CLOB endpoint
-- `polymarket.gammaHost` - Markets API
-- `polymarket.chainId` - 137 (Polygon mainnet)
+**Key configs in `config.yaml`:**
+- `dryRun: true` - Log only, no real trades
+- `polymarket.host` - CLOB API endpoint
+- `polymarket.gammaHost` - Gamma API endpoint
+- `polymarket.chainId: 137` - Polygon mainnet
+- Safety limits (position size, daily loss, drawdown)
 
-**Secrets:** `.env` file (NOT committed)
-- `PRIVATE_KEY` - Wallet EOA private key
-- `FUNDER_ADDRESS` - pUSD/ POL funder address
-- `GOOGLE_API_KEY` - Google Custom Search API
-- `GOOGLE_SEARCH_ENGINE_ID` - Google Search Engine ID
+**Key env vars (from `.env.example`):**
+- `PRIVATE_KEY` - Ethereum wallet for signing
+- `FUNDER_ADDRESS` - Wallet address for funding
+- `MINIMAX_API_KEY` - AI inference
+- `NEWSDATA_API_KEY` - News API
+- `TWITTER_BEARER_TOKEN` - Twitter API
+- `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` - Reddit API
 
-## Source Code Structure
+## Build Configuration
 
-```
-src/
-├── index.ts          # Entry point, health server, cron trigger
-├── main.ts           # Bot cycle orchestration
-├── api/
-│   ├── polymarket.ts # Gamma API (markets)
-│   └── clob.ts       # CLOB client (orderbooks, trading)
-├── research/
-│   ├── binance.ts    # Binance WebSocket adapter
-│   └── google.ts     # Google Search API adapter
-├── bankroll/         # Position sizing, exposure caps
-├── safety/           # Kill switches, loss limits
-├── logging/          # Pino logger init
-├── db/               # Drizzle ORM schema
-├── config/           # YAML config loading
-└── types/            # TypeScript interfaces
-```
+**TypeScript (`tsconfig.json`):**
+- Target: ES2022
+- Module: ESNext with bundler resolution
+- Strict mode enabled
+- Output: `./dist` directory
+
+**Railway (`railway.json`):**
+- Builder: RAILPACK
+- Health check: `/health` endpoint
+- Idle timeout: 300 seconds
+- Max retries: 10 on failure
+
+## Python Dependencies (requirements.txt)
+
+**Social Media APIs:**
+- `tweepy>=4.14.0` - Twitter API v2
+- `praw>=7.7.0` - Reddit API
+
+**Note:** Python scripts run as subprocesses from TypeScript. Libraries installed in `.venv` or `.venv311`.
 
 ---
 
-*Stack analysis: 2026-04-19*
+*Stack analysis: 2026-05-02*

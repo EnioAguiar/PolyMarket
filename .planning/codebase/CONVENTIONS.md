@@ -1,211 +1,139 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-04-19
+**Analysis Date:** 2026-05-02
 
 ## Naming Patterns
 
 **Files:**
-- **PascalCase** for TypeScript files: `arbitrage.ts`, `position-sizing.ts`, `slippage.ts`
-- **kebab-case** for directory names: `src/execution/`, `src/bankroll/`, `src/safety/`
-- Barrel files named `index.ts`
+- CamelCase for TypeScript files: `position-sizing.ts`, `slippage.ts`, `arbitrage.ts`
+- Test files co-located in `tests/` directory: `*.test.ts`
+- Interface files colocated with implementation: `src/research/interface.ts`
 
 **Functions:**
-- **camelCase**: `calculatePositionSize`, `checkArbitrage`, `getMidPrice`, `isKillSwitchActive`
-- Predicate functions use `is` prefix: `isArbitrage`, `isKillSwitchActive`, `isDryRun`
-- Query functions use `get` prefix: `getLogger`, `getClobClient`, `getMidPrice`, `getMaxPositionSizeForOdds`
-- Check/validation functions: `checkSlippage`, `checkBet`, `checkPositionSize`, `checkDailyLoss`, `checkDrawdown`
+- camelCase for functions: `calculatePositionSize`, `checkSlippage`, `checkArbitrage`
+- Verb-noun pattern: `calculateX`, `checkY`, `logZ`
 
 **Variables:**
-- **camelCase**: `clobClient`, `orderbook`, `maxPositionSizePct`
-- Constants: **UPPER_SNAKE_CASE** for magic numbers at module level: `FEE_THRESHOLD`, `POLYMARKET_MIN_TOKENS`
-- Interface properties: **camelCase** (from TypeScript defaults)
+- camelCase for variables and parameters
+- UPPER_SNAKE for constants: `POLYMARKET_MIN_TOKENS`, `FEE_THRESHOLD`
+- Descriptive names: `bankroll`, `researchQuality`, `maxSlippagePct`
 
 **Types:**
-- **PascalCase** interfaces: `ArbitrageCheckResult`, `SlippageCheckResult`, `PositionSizingInput`, `SafetyModuleConfig`
-- Suffix with purpose: `Input`, `Result`, `Config`, `State`, `Entry`
+- PascalCase for interfaces: `PositionSizingInput`, `SlippageCheckResult`, `ArbitrageCheckResult`
+- `as const` for literal type assertions: `rating = 3 as const`
 
 ## Code Style
 
 **Formatting:**
-- Tool: Not configured (no Prettier/ESLint config files present)
-- TypeScript strict mode enabled in `tsconfig.json`
-- 2-space indentation
-- Trailing semicolons
+- Prettier not configured; code uses 2-space indentation
+- No semicolons at end of statements
+- Trailing commas in multi-line objects/arrays
+
+**Linting:**
+- ESLint with `@typescript-eslint` (v8)
+- Parser: `@typescript-eslint/parser`
+- Rule plugin: `@typescript-eslint/eslint-plugin`
+- Config extends `eslint.config.js` (flat config format)
+
+**TypeScript:**
+- `strict: true` in tsconfig.json
+- Explicit return types on exported functions
+- Interfaces preferred over type aliases for object shapes
+- Import types explicitly: `import type { PositionSizingInput } from './types.js'`
 
 **Module System:**
 - ESNext modules (`"type": "module"` in package.json)
-- `.js` extensions in imports: `import { checkArbitrage } from '../src/execution/arbitrage.js'`
-- `moduleResolution: "bundler"` in tsconfig
+- Explicit `.js` extensions in imports: `from './types.js'`
+- `export function` for public APIs
+- No default exports observed
 
-**Import Organization:**
-1. External packages (e.g., `vitest`, `@polymarket/clob-client-v2`, `ethers`, `pino`)
-2. Internal path aliases or relative imports (e.g., `../types/index.js`)
+## Import Organization
+
+**Order:**
+1. Built-in/Node modules: `import { spawn } from 'child_process'`
+2. External packages: `import pino from 'pino'`
+3. Internal types: `import type { Config } from '../types/index.js'`
+4. Internal modules: `import { SourceCategory } from '../types/source.js'`
+
+**Path aliases:**
+- None configured; relative paths used
+- Parent directory imports: `../src/...`
 
 ## Error Handling
 
-**Pattern: Early returns with result objects**
+**Patterns:**
+- Custom Error objects with descriptive messages
+- Errors include context: `new Error(\`twitter_scraper.py exited with code \${code}: \${stderr}\`)`
+- Errors propagated via Promise rejection
+- Timeout errors with clear messaging
 
+**Example from `src/research/twitter.ts`:**
 ```typescript
-// From src/execution/arbitrage.ts
-if (!bestBid || !bestAsk) {
-  return {
-    isArbitrage: false,
-    yesPrice: bestAsk || 0,
-    noPrice: bestBid || 0,
-    combinedPrice: 0,
-    feeThreshold: FEE_THRESHOLD,
-    profitPct: 0,
-    reason: 'Insufficient orderbook data',
-  };
-}
+reject(new Error(`Failed to spawn twitter_scraper.py: ${err.message}`));
 ```
 
-**Pattern: Try-catch with string interpolation in error message**
-
-```typescript
-// From src/main.ts
-try {
-  const decision = await evaluateMarket(market, safetyModule, config);
-} catch (error) {
-  logger.error({ marketId: market.id, error }, 'Error processing market');
-}
-```
-
-**Pattern: Guard clauses at function start**
-
-```typescript
-// From src/api/clob.ts
-export function createClobClient(config: Config): ClobClient {
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
-  }
-  // ... rest of function
-}
-```
-
-**Pattern: Nullable returns**
-
-```typescript
-// From src/api/clob.ts
-export function getMidPrice(orderbook: OrderBook): number | null {
-  const { bestBid, bestAsk } = getBestPrices(orderbook);
-  if (bestBid === null || bestAsk === null) return null;
-  return (bestBid + bestAsk) / 2;
-}
-```
+**Validation:**
+- Guard clauses for null/undefined: `if (!bestBid || !bestAsk)`
+- Early returns with fallback values
+- Clear reason strings in result objects
 
 ## Logging
 
-**Framework:** Pino (`pino@^10.0.0`)
+**Framework:** Pino v10
 
-**Initialization pattern:**
+**Patterns:**
+- Structured JSON logging via Pino
+- Helper functions for domain-specific logs: `logBetDecision()`, `logSafetyCheck()`
+- Log levels: `info`, `debug`, `warn`, `error`
+- Pretty printing in development via `pino-pretty`
 
+**Example:**
 ```typescript
-// From src/logging/index.ts
-export function initLogger(config: Config): pino.Logger {
-  const transport = config.logging.pretty
-    ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard', ignore: 'pid,hostname' } }
-    : undefined;
-
-  logger = pino({
-    level: config.logging.level || 'debug',
-    transport,
-    base: { service: 'polymarket-bot' },
-    timestamp: pino.stdTimeFunctions.isoTime,
-  });
-  return logger;
-}
+getLogger().info({ marketId, odds, positionSize }, `Bet decision: ${action}`);
 ```
 
-**Usage patterns:**
+## Comments
 
-```typescript
-// Structured logging with object + message
-logger.info({ dryRun: config.dryRun, msg: 'Polymarket Bot starting' });
+**Documentation:**
+- JSDoc on class declarations: `/** TwitterAdapter - implements ResearchSource... */`
+- Implementation comments for decisions: `// D-04: Fixed 5% of bankroll per bet`
+- Decision tag format: `// D-04:`, `// D-09:`, `// D-15 to D-18:`
 
-// With step context
-logger.info({ step: 'monitor' }, 'Fetching markets from Polymarket');
+**When to Comment:**
+- Business rules (D-XX tags)
+- Non-obvious calculations
+- External system integration points
 
-// Error with context
-logger.error({ marketId: market.id, error }, 'Error processing market');
+## Function Design
 
-// Warn with msg prefix
-logger.warn({ msg: 'KILL SWITCH ACTIVE - bot halted' });
-```
+**Size:**
+- Small, focused functions
+- Single responsibility: `calculatePositionSize`, `checkSlippage`, `checkArbitrage`
 
-**Specialized log helpers:**
+**Parameters:**
+- Typed input interfaces
+- Return typed result interfaces
+- Max 3-4 parameters; beyond that use input object
 
-```typescript
-// From src/logging/index.ts
-export function logBetDecision(decision: {...}): void {
-  getLogger().info({...}, `Bet decision: ${decision.action}`);
-}
-```
+**Return Values:**
+- Always return object with multiple values (not tuple)
+- Include `reason` field explaining the result
 
-## JSDoc Comments
+## Module Design
 
-**Used for documentation on exported functions:**
+**Exports:**
+- Named exports only
+- Exported functions have explicit return types
+- Internal functions are private (no export)
 
-```typescript
-// From src/api/clob.ts
-/**
- * Initialize the CLOB client (EXEC-01: wallet connection)
- * Requires PRIVATE_KEY and FUNDER_ADDRESS environment variables
- */
-export function createClobClient(config: Config): ClobClient { ... }
+**Classes:**
+- Used for stateful adapters: `TwitterAdapter`, `RedditAdapter`
+- Implements interface pattern: `export class X implements ResearchSource`
 
-/**
- * Fetch orderbook for a specific token (MON-02: fetch odds and orderbook depth)
- */
-export async function getOrderBook(tokenId: string): Promise<OrderBook> { ... }
-```
-
-## Class Patterns
-
-**Module classes with dependency injection via constructor:**
-
-```typescript
-// From src/safety/index.ts
-export class SafetyModule {
-  private config: SafetyModuleConfig;
-  private dailyLossTracker: DailyLossTracker;
-  private drawdownTracker: DrawdownTracker;
-  private bankroll: number;
-
-  constructor(config: Config, initialState: SafetyState, initialBankroll: number) {
-    this.config = { ... };
-    this.bankroll = initialBankroll;
-    this.dailyLossTracker = new DailyLossTracker(this.config, initialState);
-    this.drawdownTracker = new DrawdownTracker(this.config, initialState, initialBankroll);
-  }
-}
-```
-
-## Constants
-
-**Module-level constants for magic numbers:**
-
-```typescript
-// From src/execution/arbitrage.ts
-const FEE_THRESHOLD = 0.99; // D-16: YES + NO < $0.99 for arbitrage
-
-// From src/bankroll/position-sizing.ts
-const POLYMARKET_MIN_TOKENS = 5;
-const POLYMARKET_MIN_USD = 1;
-```
-
-## Type Exports
-
-**Centralized in `src/types/index.ts`:**
-- `Market`, `OrderBook`, `OrderBookEntry` - data types
-- `Config`, `SafetyConfig`, `SafetyState` - configuration/state
-- `BetDecision` - action types
-
-**Module-specific types** in respective `types.ts` files:
-- `src/bankroll/types.ts` - `PositionSizingInput`, `PositionSizingResult`, `BankrollState`
-- `src/safety/types.ts` - `SafetyCheckResult`, `SafetyModuleConfig`, `BetCheckInput`
+**Singleton Pattern:**
+- Logger uses module-level singleton: `let logger: pino.Logger`
+- Initialization function: `initLogger(config)`, `getLogger()`
 
 ---
 
-*Convention analysis: 2026-04-19*
+*Convention analysis: 2026-05-02*

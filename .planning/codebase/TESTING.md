@@ -1,166 +1,160 @@
 # Testing Patterns
 
-**Analysis Date:** 2026-04-19
+**Analysis Date:** 2026-05-02
 
 ## Test Framework
 
-**Runner:** Vitest (`vitest@^1.0.0`)
+**Runner:**
+- Vitest v1.0.0
+- Config: `vitest.config.ts` not found (uses defaults)
 
-**Config:** No `vitest.config.ts` found - uses Vitest defaults
-
-**Assertion Library:** Built-in Vitest (`expect`)
+**Assertion Library:**
+- Vitest built-in `expect`
 
 **Run Commands:**
 ```bash
-npm test              # Run all tests (vitest)
-npm run test -- --watch  # Watch mode
+npm test               # Run all tests
+npm run dev            # Development with ts-node
+npm run build          # Compile TypeScript
+npm run lint           # Run ESLint
 ```
 
 ## Test File Organization
 
-**Location:** `tests/` directory (co-located at project root, not alongside source)
+**Location:**
+- `tests/` directory at project root (co-located, not in src/)
+- Separate from source files
 
-**Files found:**
-- `tests/arbitrage.test.ts` - arbitrage detection logic
-- `tests/position-sizing.test.ts` - bankroll position sizing calculations
-- `tests/slippage.test.ts` - slippage tolerance checks
+**Naming:**
+- `*.test.ts` suffix
+- Mirror source structure where practical: `tests/arbitrage.test.ts`, `tests/position-sizing.test.ts`
 
-**Naming:** `{module-name}.test.ts`
+**Structure:**
+```
+tests/
+├── arbitrage.test.ts
+├── position-sizing.test.ts
+├── research/
+│   └── social.test.ts
+└── slippage.test.ts
+```
 
 ## Test Structure
 
-**Import pattern:**
-
+**Suite Organization:**
 ```typescript
 import { describe, it, expect } from 'vitest';
-import { checkArbitrage, calculateArbitrageProfit } from '../src/execution/arbitrage.js';
-```
 
-**Suite organization:**
-
-```typescript
 describe('arbitrage', () => {
   it('should detect arbitrage when YES + NO < 0.99', () => {
-    const orderbook = {
-      bids: [{ price: 0.45, size: 100 }],
-      asks: [{ price: 0.50, size: 100 }],
-    };
-    
+    const orderbook = { ... };
     const result = checkArbitrage(orderbook);
-    
     expect(result.isArbitrage).toBe(true);
-    expect(result.combinedPrice).toBe(0.95);
-    expect(result.profitPct).toBeGreaterThan(0);
   });
-  // ... more tests
 });
 ```
 
-**Pattern:**
-- `describe()` blocks for module/feature grouping
+**Patterns:**
+- `describe()` blocks group related tests by function/module
 - `it()` or `test()` for individual test cases
-- Descriptive test names: "should detect X when Y"
-- Arrange-Act-Assert (AAA) pattern with inline arrange
-
-## Assertion Patterns
-
-**Basic assertions:**
-```typescript
-expect(result.isArbitrage).toBe(true);
-expect(result.combinedPrice).toBe(0.95);
-```
-
-**Numeric comparisons:**
-```typescript
-expect(result.positionSize).toBeCloseTo(50);  // For floating point
-expect(result.slippagePct).toBeCloseTo(0.05);
-```
-
-**Boundary testing:**
-```typescript
-// From tests/slippage.test.ts
-it('should allow exactly 10% slippage (boundary)', () => {
-  const result = checkSlippage(
-    { expectedPrice: 1.0, executionPrice: 1.099 },
-    0.10
-  );
-  expect(result.allowed).toBe(true);
-});
-```
-
-**Negative/edge cases:**
-```typescript
-// From tests/slippage.test.ts
-it('should handle price improvement', () => {
-  const result = checkSlippage(
-    { expectedPrice: 1.0, executionPrice: 0.90 },
-    0.10
-  );
-  expect(result.allowed).toBe(true);
-});
-```
-
-## Test Data
-
-**Inline fixture objects** (no separate fixture files):
-
-```typescript
-const orderbook = {
-  bids: [{ price: 0.45, size: 100 }], // NO side
-  asks: [{ price: 0.50, size: 100 }], // YES side
-};
-```
-
-**Typed inputs using source types:**
-
-```typescript
-// From tests/position-sizing.test.ts
-import type { PositionSizingInput } from '../src/bankroll/types.js';
-
-const input: PositionSizingInput = {
-  bankroll: 1000,
-  odds: 2.0,
-  category: 'crypto',
-  researchQuality: 'medium',
-};
-```
+- Clear test descriptions: "should detect X when Y"
+- Arrange-Act-Assert pattern
 
 ## Mocking
 
-**No mocking framework detected** in current test files.
+**Framework:** Vitest built-in `vi`
 
-**Direct function calls** - tests import actual implementation:
+**Pattern:**
 ```typescript
-import { checkArbitrage, calculateArbitrageProfit } from '../src/execution/arbitrage.js';
-import { checkSlippage } from '../src/execution/slippage.js';
-import { calculatePositionSize } from '../src/bankroll/position-sizing.js';
+import { vi } from 'vitest';
+
+vi.mock('child_process', () => ({
+  spawn: vi.fn()
+}));
+```
+
+**Usage in `tests/research/social.test.ts`:**
+- Mock Node.js `child_process` module
+- Use `vi.fn()` for function mocks
+- Reset in `beforeEach` when needed
+
+## Fixtures and Factories
+
+**Test Data:**
+- Inline object literals for test data
+- Constants defined in test body for readability
+
+**Example from `tests/arbitrage.test.ts`:**
+```typescript
+const orderbook = {
+  bids: [{ price: 0.45, size: 100 }],
+  asks: [{ price: 0.50, size: 100 }],
+};
+```
+
+**Environment Variables:**
+- Tests modify `process.env` directly
+- Cleanup with `delete process.env.VAR_NAME`
+
+**Example from `tests/research/social.test.ts`:**
+```typescript
+it('isAvailable returns true when TWITTER_BEARER_TOKEN is set', () => {
+  process.env.TWITTER_BEARER_TOKEN = 'test-token';
+  const result = adapter.isAvailable();
+  expect(result).toBe(true);
+  delete process.env.TWITTER_BEARER_TOKEN;
+});
 ```
 
 ## Coverage
 
-**No coverage configuration or reporting detected.**
+**Requirements:** None enforced
 
-No `coverage` script in package.json, no `@vitest/coverage-*` packages installed.
+**View Coverage:** Not configured
 
-## What IS Tested
+## Test Types
 
-**Current test coverage:**
+**Unit Tests:**
+- Pure functions tested in isolation: `calculatePositionSize`, `checkSlippage`, `checkArbitrage`
+- No external dependencies mocked where possible
+- Example: `tests/arbitrage.test.ts`, `tests/slippage.test.ts`
 
-| Module | Functions Tested | Coverage Focus |
-|--------|------------------|----------------|
-| `execution/arbitrage.ts` | `checkArbitrage`, `calculateArbitrageProfit` | YES+NO price detection, profit calculation |
-| `execution/slippage.ts` | `checkSlippage` | Boundary conditions, price improvement |
-| `bankroll/position-sizing.ts` | `calculatePositionSize` | Quality multipliers, minimum thresholds |
+**Integration Tests:**
+- Adapters tested with mocked dependencies: `tests/research/social.test.ts`
+- Tests verify class instances and their behavior
 
-## What IS NOT Tested
+**E2E Tests:** Not used
 
-- No API calls tested (would require mocking)
-- No database operations
-- No integration tests
-- No E2E tests
-- No safety module tests
-- No config loading tests
+## Common Patterns
+
+**Async Testing:** Not observed in current tests
+
+**Error Testing:**
+- Tests pass when functions handle errors gracefully
+- Example: `expect(true).toBe(true)` for void operations
+
+**Boundary Testing:**
+- Explicit tests at boundaries: "should allow exactly 10% slippage (boundary)"
+- `toBeCloseTo()` for floating point comparison
+
+## Test Organization Conventions
+
+**Descriptive Names:**
+- `describe('arbitrage')` - groups by function
+- `describe('position-sizing')` - groups by module
+- `describe('TwitterAdapter')` - groups by class
+
+**Assertion Patterns:**
+- `expect(result.isArbitrage).toBe(true)`
+- `expect(result.positionSize).toBeCloseTo(50)`
+- `expect(result.allowed).toBe(false)`
+- `expect(result.slippagePct).toBeCloseTo(0.05)`
+
+**Test Independence:**
+- Each test sets up its own data
+- No shared mutable state between tests
+- Environment variables cleaned up after each test
 
 ---
 
-*Testing analysis: 2026-04-19*
+*Testing analysis: 2026-05-02*

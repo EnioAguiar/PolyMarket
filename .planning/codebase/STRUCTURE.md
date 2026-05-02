@@ -1,170 +1,186 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-04-19
+**Analysis Date:** 2026-05-02
 
 ## Directory Layout
 
 ```
 polymarket/
-├── src/
-│   ├── index.ts              # Entry point
-│   ├── main.ts               # Bot cycle logic
-│   ├── api/                  # External API clients
-│   ├── ai/                   # AI estimation
-│   ├── bankroll/             # Position sizing
-│   ├── config/               # Configuration loading
-│   ├── db/                   # Database (Drizzle + SQLite)
-│   ├── execution/            # Order execution
-│   ├── logging/              # Pino logger
-│   ├── research/             # Source adapters & aggregation
-│   ├── safety/               # Risk management
-│   └── types/                # TypeScript types
-├── tests/                    # Vitest unit tests
-├── config.yaml               # Runtime configuration
-├── package.json              # Dependencies
-├── tsconfig.json             # TypeScript config
-├── railway.json              # Railway deployment config
-└── .planning/codebase/       # This documentation
+├── src/                    # Main TypeScript source
+│   ├── index.ts            # Event-driven entry (WebSocket)
+│   ├── main.ts             # Cron polling entry
+│   ├── test-apis.ts        # API testing utility
+│   ├── api/                # Polymarket API clients
+│   ├── ai/                 # AI inference (MiniMax)
+│   ├── bankroll/           # Position sizing
+│   ├── betting/            # Cycle management, mutex
+│   ├── config/             # YAML config loading
+│   ├── db/                 # SQLite/Drizzle persistence
+│   ├── execution/          # Order placement, slippage
+│   ├── logging/            # Pino logger setup
+│   ├── research/           # Source aggregation, confidence
+│   ├── safety/             # Kill switch, position limits
+│   ├── types/              # Shared TypeScript types
+│   └── websocket/          # WS client, events, subscriptions
+├── tests/                  # Test files
+│   └── research/           # Unit tests
+├── scripts/                # Python data scripts
+│   └── crawl4ai_*.py        # Web crawling scripts
+├── data/                   # SQLite database location
+├── dist/                   # Compiled JavaScript output
+├── .planning/              # GSD planning artifacts
+├── package.json            # Node dependencies
+└── config.yaml             # Bot configuration
 ```
 
 ## Directory Purposes
 
-**`src/`** - Core TypeScript source code (ESM, Node 20+)
+**src/ai/**
+- Purpose: AI inference and validation
+- Contains: MiniMaxAI, AIChain, AIValidator, confidence scoring
+- Key files: `minimax.ts`, `chain.ts`, `validation.ts`
 
-**`src/api/`** - External API clients:
-- `polymarket.ts` - Gamma API (market listing)
-- `clob.ts` - CLOB client (orderbooks, trading)
+**src/api/**
+- Purpose: External API clients for Polymarket
+- Contains: Gamma API (market discovery), CLOB client (orderbook, trading)
+- Key files: `polymarket.ts`, `clob.ts`
 
-**`src/ai/`** - AI estimation:
-- `chain.ts` - AIChain orchestrator
-- `minimax.ts` - MiniMax 2 API integration
-- `validation.ts` - Estimate validation
+**src/bankroll/**
+- Purpose: Position sizing and exposure tracking
+- Contains: BankrollModule, exposure caps, position sizing calculations
+- Key files: `index.ts`, `position-sizing.ts`, `exposure-caps.ts`
 
-**`src/bankroll/`** - Bankroll management:
-- `index.ts` - Entry point, exports
-- `position-sizing.ts` - Kelly criterion sizing
-- `exposure-caps.ts` - Category exposure limits
-- `types.ts` - Bankroll type definitions
+**src/betting/**
+- Purpose: Betting cycle state machine
+- Contains: CycleManager, MarketMutex, Bet types
+- Key files: `cycle.ts`, `mutex.ts`, `types.ts`
 
-**`src/config/`** - Configuration:
-- `index.ts` - `loadConfig()` from config.yaml
-- `research.ts` - Research source configuration
+**src/config/**
+- Purpose: YAML configuration loading
+- Contains: Config schema validation
+- Key files: `index.ts`
 
-**`src/db/`** - Database:
-- `index.ts` - Drizzle client singleton
-- `schema.ts` - Table definitions (sourceRatings, sourceFeeds, researchResults)
-- `push.ts` - (Not read)
+**src/db/**
+- Purpose: SQLite persistence via Drizzle ORM
+- Contains: Database connection, schema definitions
+- Key files: `index.ts`, `schema.ts`, `push.ts`
 
-**`src/execution/`** - Order execution:
-- `index.ts` - Barrel exports
-- `limit-orders.ts` - Limit/market order placement
-- `slippage.ts` - Slippage validation
-- `arbitrage.ts` - Arbitrage detection
+**src/execution/**
+- Purpose: Order placement and market analysis
+- Contains: Limit orders, slippage calculation, arbitrage detection
+- Key files: `limit-orders.ts`, `slippage.ts`, `arbitrage.ts`
 
-**`src/logging/`** - Logging:
-- `index.ts` - Pino logger initialization and helpers
+**src/logging/**
+- Purpose: Structured logging with Pino
+- Contains: Logger initialization, structured helpers
+- Key files: `index.ts`
 
-**`src/research/`** - Research system:
-- `interface.ts` - ResearchSource, ResearchSignal, AggregatedResearch interfaces
-- `aggregator.ts` - ResearchAggregator (parallel source fetching)
-- `binance.ts` - BinanceAdapter (WebSocket)
-- `google.ts` - GoogleAdapter (REST API)
-- `chain.ts` - (Not read)
-- `confidence.ts` - BayesianScorer for weighted confidence
-- `types.ts` - (Not read)
+**src/research/**
+- Purpose: Research source aggregation and confidence scoring
+- Contains: ResearchAggregator, BayesianScorer, source implementations
+- Key files: `aggregator.ts`, `confidence.ts`, `interface.ts`, `google.ts`, `binance.ts`, `twitter.ts`, `reddit.ts`
 
-**`src/safety/`** - Risk management:
-- `index.ts` - SafetyModule class
-- `position-limits.ts` - Max position size check (BANK-01)
-- `daily-loss.ts` - Daily loss tracker (BANK-02)
-- `drawdown.ts` - Drawdown tracker/kill switch (BANK-03)
-- `types.ts` - Safety type definitions
+**src/safety/**
+- Purpose: Risk management and kill switches
+- Contains: SafetyModule, DailyLossTracker, DrawdownTracker
+- Key files: `index.ts`, `daily-loss.ts`, `drawdown.ts`, `position-limits.ts`
 
-**`src/types/`** - TypeScript types:
-- `index.ts` - Market, OrderBook, Config, SafetyState, BetDecision
-- `source.ts` - SourceCategory, FeedType, star ratings
-- `ai.ts` - AIRequest, AIEstimate, ChainOfThoughtEntry
+**src/types/**
+- Purpose: Shared TypeScript type definitions
+- Contains: Market, OrderBook, Config, SafetyState interfaces
+- Key files: `index.ts`, `ai.ts`, `source.ts`
 
-**`tests/`** - Vitest unit tests:
-- `slippage.test.ts`
-- `position-sizing.test.ts`
-- `arbitrage.test.ts`
+**src/websocket/**
+- Purpose: Polymarket WebSocket client
+- Contains: WS client, event routing, subscription management
+- Key files: `client.ts`, `events.ts`, `subscription.ts`, `integration.ts`
 
 ## Key File Locations
 
 **Entry Points:**
-- `src/index.ts` - Primary entry, creates HTTP server for health checks
-- `src/main.ts` - `runBotCycle()` function
+- `src/index.ts`: Event-driven WebSocket mode (primary for production)
+- `src/main.ts`: Cron polling mode (fallback/development)
 
 **Configuration:**
-- `config.yaml` - Runtime configuration (dryRun, safety limits, API hosts)
+- `config.yaml`: YAML config with safety, polymarket, logging sections
+- `src/config/index.ts`: Config loading and validation
 
 **Core Logic:**
-- `src/main.ts` - Bot cycle orchestration
-- `src/safety/index.ts` - SafetyModule class
-- `src/api/polymarket.ts` - Market fetching
-- `src/api/clob.ts` - Orderbook retrieval
+- `src/safety/index.ts`: SafetyModule coordinating all safety checks
+- `src/betting/cycle.ts`: CycleManager for bet cycle state
+- `src/research/aggregator.ts`: ResearchAggregator parallel fetching
+- `src/ai/chain.ts`: AIChain orchestrating estimate generation
 
-**Database:**
-- `src/db/schema.ts` - Drizzle schema definitions
+**Testing:**
+- `tests/research/social.test.ts`: Research source tests
+- `tests/position-sizing.test.ts`, `tests/slippage.test.ts`, `tests/arbitrage.test.ts`: Strategy tests
+
+## Naming Conventions
+
+**Files:**
+- Modules: `index.ts` for barrel exports, descriptive name for implementation
+- Types: `types.ts` for exported interfaces
+- Tests: `*.test.ts` pattern
+
+**Directories:**
+- Lowercase kebab: `src/websocket/`, `src/bankroll/`
+- Singular noun for feature dirs: `src/ai/`, `src/api/`
 
 ## Where to Add New Code
 
-**New API Source:**
-- Create `src/research/{name}.ts` implementing `ResearchSource` interface
-- Add to `ResearchAggregator` in `src/research/aggregator.ts`
+**New Research Source:**
+- Create in `src/research/[source-name].ts`
+- Implement `ResearchSource` interface from `src/research/interface.ts`
+- Export from `src/research/` barrel
+- Primary location: `src/research/`
+
+**New API Integration:**
+- Create in `src/api/[name].ts`
+- Follow pattern of `polymarket.ts` (fetch wrapper) or `clob.ts` (client wrapper)
+- Primary location: `src/api/`
 
 **New Safety Check:**
-- Add to `src/safety/` directory
-- Import in `SafetyModule` (`src/safety/index.ts`)
+- Create in `src/safety/[check-name].ts`
+- Implement check returning `{ passed: boolean, checkType: string, message?: string }`
+- Register in `src/safety/index.ts` SafetyModule constructor
 
-**New Market Category:**
-- Add to `SourceCategory` enum in `src/types/source.ts`
-- Configure rating/minSources in `config/research.ts`
+**New Betting Strategy:**
+- Create in `src/execution/[strategy].ts`
+- Add to `src/execution/index.ts` barrel
+- Primary location: `src/execution/`
 
-**New Test:**
-- Add to `tests/` directory with `.test.ts` suffix
-- Run with `npm test`
+**New AI Model:**
+- Create in `src/ai/[model].ts`
+- Implement estimate generation following `MiniMaxAI` pattern
+- Register in `src/ai/chain.ts`
 
-## Module Dependencies
+## Special Directories
 
-```
-src/index.ts
-  └── src/main.ts
-        ├── src/config/index.ts
-        ├── src/logging/index.ts
-        ├── src/api/polymarket.ts
-        ├── src/api/clob.ts
-        └── src/safety/index.ts
-              ├── src/safety/position-limits.ts
-              ├── src/safety/daily-loss.ts
-              └── src/safety/drawdown.ts
+**src/websocket/:**
+- Purpose: WebSocket client management
+- Generated: No
+- Committed: Yes
 
-src/research/aggregator.ts
-  ├── src/research/binance.ts
-  └── src/research/google.ts
+**src/db/:**
+- Purpose: SQLite database via better-sqlite3 + Drizzle
+- Generated: No (runtime creation)
+- Committed: Yes
 
-src/ai/chain.ts
-  ├── src/ai/minimax.ts
-  └── src/ai/validation.ts
-```
+**scripts/ (Python):**
+- Purpose: Crawl4ai web crawling scripts
+- Generated: No
+- Committed: Yes
 
-## Configuration Files
+**dist/:**
+- Purpose: Compiled TypeScript output
+- Generated: Yes (via `npm run build`)
+- Committed: No (.gitignore)
 
-**`package.json`** - Dependencies and scripts:
-- Runtime: `@polymarket/clob-client-v2`, `ethers`, `pino`, `ws`, `yaml`
-- Dev: `typescript`, `vitest`, `eslint`, `drizzle-orm`, `better-sqlite3`
-
-**`tsconfig.json`** - TypeScript configuration:
-- Target: ES2022, Module: ESNext
-- Strict mode enabled
-- Output: `./dist`
-
-**`railway.json`** - Railway deployment:
-- Health check on `/health`
-- Node 20 runtime
-- Restart on failure (max 3)
+**data/:**
+- Purpose: SQLite database file location
+- Generated: Yes (runtime)
+- Committed: No (.gitignore)
 
 ---
 
-*Structure analysis: 2026-04-19*
+*Structure analysis: 2026-05-02*
