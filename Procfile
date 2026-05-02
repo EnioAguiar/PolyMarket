@@ -1,1 +1,1 @@
-web: npm start
+web: pip install -r python/requirements.txt && npm start

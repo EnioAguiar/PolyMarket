@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
 Crawl4AI web scraper with search integration.
-First searches DuckDuckGo for relevant URLs, then scrapes them.
+First searches for relevant URLs, then scrapes them.
 
 Usage:
     python scripts/crawl4ai_search.py --query "Bitcoin news" --max-results 5
+
+Supports:
+    - Brave Search API (with BRAVE_SEARCH_API_KEY env var)
+    - Brave Search scraping (fallback, no API key needed)
 """
 
 import asyncio
@@ -12,19 +16,56 @@ import argparse
 import json
 import sys
 import re
+import os
 from datetime import datetime
 from typing import List, Set
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig
 
 
-async def search_duckduckgo(query: str, max_results: int = 5) -> List[dict]:
-    """Search DuckDuckGo for relevant URLs."""
+async def search_brave_api(query: str, max_results: int = 5) -> List[dict]:
+    """Search using Brave Search API (requires BRAVE_SEARCH_API_KEY)."""
+    import urllib.request
+    import urllib.parse
+
+    search_results = []
+    api_key = os.getenv('BRAVE_SEARCH_API_KEY')
+
+    if not api_key:
+        return []
+
+    url = f"https://api.search.brave.com/res/v1/web/search?q={urllib.parse.quote(query)}&count={max_results}"
+
+    req = urllib.request.Request(url, headers={
+        'Accept': 'application/json',
+        'X-Subscription-Token': api_key
+    })
+
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            results = data.get('web', {}).get('results', [])
+
+            for item in results[:max_results]:
+                item_url = item.get('url', '')
+                title = item.get('title', '')
+                if item_url:
+                    search_results.append({
+                        'title': title or item_url,
+                        'url': item_url
+                    })
+    except Exception as e:
+        print(f"Brave API error: {e}", file=sys.stderr)
+
+    return search_results
+
+
+async def search_brave_scrape(query: str, max_results: int = 5) -> List[dict]:
+    """Fallback: Scrape Brave search page with Crawl4AI."""
     browser_config = BrowserConfig(
         headless=True,
         viewport_width=1280,
         viewport_height=720,
-        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
     run_config = CrawlerRunConfig(
@@ -34,8 +75,7 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[dict]:
     )
 
     search_results = []
-    search_url = f"https://duckduckgo.com/?q={query.replace(' ', '+')}&ia=web"
-
+    search_url = f"https://search.brave.com/search?q={query.replace(' ', '+')}"
     seen_domains: Set[str] = set()
 
     try:
@@ -50,7 +90,6 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[dict]:
                 matches = re.findall(url_pattern, content)
 
                 for title, url in matches:
-                    # Skip if same domain already seen
                     domain = re.search(r'https?://([^/]+)', url)
                     if not domain:
                         continue
@@ -59,8 +98,8 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[dict]:
                     if domain_name in seen_domains:
                         continue
 
-                    # Skip non-article domains
-                    skip_domains = ['duckduckgo', 'lite.duckduckgo', 'addons.mozilla', 'chrome.google', 'twitter.com', 'x.com', 'github.com', 'youtube.com']
+                    skip_domains = ['brave.com', 'chrome.google', 'twitter.com',
+                                  'x.com', 'github.com', 'youtube.com', 'reddit.com']
                     if any(d in domain_name for d in skip_domains):
                         continue
 
@@ -76,9 +115,20 @@ async def search_duckduckgo(query: str, max_results: int = 5) -> List[dict]:
                         break
 
     except Exception as e:
-        print(f"Search error: {e}", file=sys.stderr)
+        print(f"Brave scrape error: {e}", file=sys.stderr)
 
     return search_results
+
+
+async def search(query: str, max_results: int = 5) -> List[dict]:
+    """Main search function - tries API first, falls back to scrape."""
+    # Try Brave API first (if API key available)
+    results = await search_brave_api(query, max_results)
+    if results:
+        return results
+
+    # Fallback to Brave scraping
+    return await search_brave_scrape(query, max_results)
 
 
 async def scrape_url(url: str, crawler) -> dict:
@@ -93,7 +143,6 @@ async def scrape_url(url: str, crawler) -> dict:
         excluded_tags=["script", "style", "nav", "header", "footer", "aside", "form"],
         js_code="""
         async () => {
-            // Quick scroll to trigger lazy load
             window.scrollBy(0, 300);
             await new Promise(r => setTimeout(r, 300));
             window.scrollTo(0, 0);
@@ -139,74 +188,49 @@ async def scrape_url(url: str, crawler) -> dict:
 
 
 def parse_content(markdown: str, limit: int) -> list:
-    """Parse markdown into clean content chunks, filtering ads and UI elements."""
+    """Parse markdown into clean content chunks."""
     if not markdown or len(markdown) < 100:
         return []
 
     posts = []
     lines = markdown.split('\n')
 
-    # Skip patterns for ads, UI, navigation
     skip_patterns = [
-        r'^!\[\]',  # Images
-        r'^\s*\|',  # Tables
-        r'^\s*\[submit\]', r'^\s*\[login\]', r'^\s*\[ask\]',
-        r'^\s*\[show\]', r'^\s*\[jobs\]', r'^\s*\[comment',
-        r'^\s*Hacker\s+News', r'^\s*#+\s*$',  # HN branding
-        r'^\s*\d+\s+(points?|hours?|days?|minutes?)\s+by',  # HN metadata
-        r'^\s*(subscribe|newsletter|sign\s*up)',  # Newsletter prompts
-        r'^\s*(advertisement|ad\s*by| Sponsored)',  # Ads
-        r'^\s*Cookie',  # Cookie notices
-        r'^\s*GDPR',  # GDPR banners
-    ]
-
-    # Content indicators (keep these lines)
-    content_indicators = [
-        r'\.$',  # Ends with period (sentence)
-        r'^\d+',  # Starts with number (list item, stat)
-        r'[A-Z][a-z]+',  # Has proper case (real text)
+        r'^!\[\]', r'^\s*\|', r'^\s*\[submit\]', r'^\s*\[login\]',
+        r'^\s*\[ask\]', r'^\s*\[show\]', r'^\s*\[jobs\]',
+        r'^\s*\[comment', r'^\s*Hacker\s+News', r'^\s*#+\s*$',
+        r'^\s*\d+\s+(points?|hours?|days?|minutes?)\s+by',
+        r'^\s*(subscribe|newsletter|sign\s*up)',
+        r'^\s*(advertisement|ad\s*by| Sponsored)',
+        r'^\s*Cookie', r'^\s*GDPR',
     ]
 
     for line in lines:
         line = line.strip()
-        if not line:
+        if not line or len(line) < 40:
             continue
 
-        # Skip empty, short, or all-special lines
-        if len(line) < 40:
-            continue
-
-        # Skip UI/ads patterns
         if any(re.search(p, line, re.IGNORECASE) for p in skip_patterns):
             continue
 
-        # Skip lines that are mostly special characters
         special_ratio = sum(1 for c in line if c in '|[]{}()_*#^~`>/<\\') / max(len(line), 1)
         if special_ratio > 0.2:
             continue
 
-        # Skip lines that look like navigation/menu
         if re.match(r'^(home|about|contact|menu|search|login|sign\s*up|register)', line, re.IGNORECASE):
             continue
 
-        # Clean markdown
-        clean = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', line)  # Links to text
-        clean = re.sub(r'[#*_`~^>\-\+]+', '', clean)  # Remove markdown
-        clean = re.sub(r'\s+', ' ', clean)  # Collapse whitespace
-        clean = clean.strip()
+        clean = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', line)
+        clean = re.sub(r'[#*_`~^>\-\+]+', '', clean)
+        clean = re.sub(r'\s+', ' ', clean).strip()
 
-        # Final checks
         if len(clean) < 30 or len(clean) > 1000:
             continue
 
-        # Must have some alphabetic characters
         if not re.search(r'[a-zA-Z]{5,}', clean):
             continue
 
-        posts.append({
-            "text": clean,
-            "type": "content"
-        })
+        posts.append({"text": clean, "type": "content"})
 
         if len(posts) >= limit:
             break
@@ -224,7 +248,7 @@ async def main():
     print(f"Searching for: {args.query}", file=sys.stderr)
 
     # Step 1: Search for URLs
-    urls = await search_duckduckgo(args.query, args.max_results)
+    urls = await search(args.query, args.max_results)
 
     if not urls:
         print(json.dumps({
@@ -235,7 +259,7 @@ async def main():
         }))
         sys.exit(0)
 
-    print(f"Found {len(urls)} URLs: {[u['url'][:40] for u in urls]}", file=sys.stderr)
+    print(f"Found {len(urls)} URLs", file=sys.stderr)
 
     # Step 2: Scrape each URL
     browser_config = BrowserConfig(

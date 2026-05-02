@@ -232,7 +232,7 @@ Phase 1 (Core Loop)
 6. Unit tests cover social adapter functionality
 
 **Plans:**
-- [ ] 07-01-PLAN.md — Python scraper scripts + TypeScript adapters (Twitter, Reddit)
+- [x] 07-01-PLAN.md — Python scraper scripts + TypeScript adapters (Twitter, Reddit)
 - [ ] 07-02-PLAN.md — ResearchChain integration, config, and tests
 
 ---

@@ -5,6 +5,7 @@ import { BinanceAdapter } from './binance.js';
 import { NewsDataAdapter } from './newsdata.js';
 import { TwitterAdapter } from './twitter.js';
 import { RedditAdapter } from './reddit.js';
+import { Crawl4AISearchAdapter } from './crawl4ai_search.js';
 import { BayesianScorer, type ConfidenceResult, type ConfidenceInput } from './confidence.js';
 import { SourceCategory, MIN_SOURCES } from '../types/source.js';
 import pino from 'pino';
@@ -66,6 +67,10 @@ export class ResearchChain {
       const reddit = new RedditAdapter();
       this.aggregator.addSource(reddit);
     }
+
+    // Web search via Crawl4AI + Brave (Phase 7 Wave 3)
+    const crawl4aiSearch = new Crawl4AISearchAdapter();
+    this.aggregator.addSource(crawl4aiSearch);
     
     // BayesianScorer is static-only, no instance needed
     this.scorer = BayesianScorer;

@@ -1,5 +1,0 @@
-[phases.setup]
-nixpacks = ["nodejs-20", "python311"]
-
-[phases.build]
-pip = true
