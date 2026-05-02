@@ -3,6 +3,7 @@ export enum SourceCategory {
   NEWS = 'news',
   FINANCIAL = 'financial',
   SPORTS = 'sports',
+  SOCIAL = 'social',
 }
 
 export enum FeedType {
