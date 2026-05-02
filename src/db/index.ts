@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { resolve } from 'path';
 import * as schema from './schema.js';
 
-const DB_PATH = resolve(process.env.DATA_DIR || './data', 'sources.db');
+const DB_PATH = resolve(process.env.DB_PATH || '/data/polymarket.db');
 
 let db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 

@@ -1,0 +1,10 @@
+services:
+  bot:
+    build: .
+    volumes:
+      - polymarket-data:/data
+    env_file:
+      - .env
+
+volumes:
+  polymarket-data:

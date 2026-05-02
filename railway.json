@@ -14,5 +14,11 @@
     "intervalSeconds": 30,
     "timeoutSeconds": 5,
     "startupSeconds": 30
-  }
+  },
+  "volumes": [
+    {
+      "mountPath": "/data",
+      "name": "polymarket-data"
+    }
+  ]
 }
