@@ -217,6 +217,24 @@ Phase 1 (Core Loop)
     └── Phase 4 (Reliability) — depends on all previous phases
 ```
 
+### Phase 7: Crawl4AI Social Sources - Twitter and Reddit scraping for social media prediction markets
+
+**Goal:** Integrate Twitter and Reddit as research sources via Crawl4AI + Python scrapers. Add social media intelligence to prediction market research pipeline.
+
+**Requirements:** (to be assigned from RES-01-05, SRC-01-04)
+
+**Success Criteria:**
+1. TwitterAdapter and RedditAdapter implement ResearchSource interface
+2. Python scrapers output JSON via subprocess to TypeScript
+3. SourceCategory.SOCIAL enum added for social media sources
+4. Social sources integrated into ResearchChain via aggregator
+5. Configuration exposed for enabling/disabling social sources
+6. Unit tests cover social adapter functionality
+
+**Plans:**
+- [ ] 07-01-PLAN.md — Python scraper scripts + TypeScript adapters (Twitter, Reddit)
+- [ ] 07-02-PLAN.md — ResearchChain integration, config, and tests
+
 ---
 
 *Roadmap created: 2026-04-13*
