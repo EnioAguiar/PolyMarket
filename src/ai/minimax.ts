@@ -3,8 +3,8 @@ import type { AIRequest, AIResponse, AIEstimate, ChainOfThoughtEntry } from '../
 
 export class MiniMaxAI {
   private apiKey: string;
-  private model = 'MiniMax 2';
-  
+  private model = 'MiniMax-M2.7';
+
   constructor(apiKey: string) {
     this.apiKey = apiKey;
   }
@@ -117,23 +117,74 @@ Provide your estimate as a JSON object:
   }
   
   private async callMiniMax(request: AIRequest): Promise<{probability: number; reasoning: string; confidence: number}> {
-    // MiniMax API call - placeholder for now returns Bayesian estimate
-    // In production, this calls MiniMax API with proper authentication
-    
-    const apiUrl = 'https://api.minimax.chat/v1/text/chatcompletion_v2';
-    
-    // For development, return Bayesian estimate as fallback
-    // TODO: Implement actual MiniMax API call when API key is available
-    return {
-      probability: request.confidenceResult.posterior,
-      reasoning: 'Based on Bayesian analysis of research signals',
-      confidence: request.confidenceResult.confidence,
+    const apiUrl = 'https://api.minimax.io/anthropic/v1/messages';
+
+    const body = {
+      model: this.model,
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: this.buildPrompt(request),
+      }],
     };
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`MiniMax API error (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json() as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+
+    const text = data.content?.[0]?.text || '';
+
+    // Extract JSON from response (handle potential markdown code blocks)
+    let jsonStr = text;
+    if (text.includes('```json')) {
+      jsonStr = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    } else if (text.includes('```')) {
+      jsonStr = text.replace(/```\n?/g, '').trim();
+    }
+
+    // Try to extract probability from the response text
+    let probability = request.confidenceResult.posterior;
+    let reasoning = 'From MiniMax M2.7 response';
+    let confidence = request.confidenceResult.confidence;
+
+    try {
+      // Try parsing as JSON first
+      const parsed = JSON.parse(jsonStr);
+      probability = typeof parsed.probability === 'number' ? parsed.probability : probability;
+      reasoning = parsed.reasoning || reasoning;
+      confidence = typeof parsed.confidence === 'number' ? parsed.confidence : confidence;
+    } catch {
+      // Fallback: extract numbers from text
+      const numMatch = text.match(/(?:probability|pr[o]?b)[:\s]*0?\.\d+/i);
+      if (numMatch) {
+        const numStr = numMatch[0].replace(/[^0-9.]/g, '');
+        probability = parseFloat(numStr) || probability;
+      }
+    }
+
+    return { probability, reasoning, confidence };
   }
 }
 
 export async function generateEstimate(request: AIRequest): Promise<AIResponse> {
-  const apiKey = process.env.MINIMAX_API_KEY || 'demo-key';
+  const apiKey = process.env.MINIMAX_API_KEY;
+  if (!apiKey) {
+    throw new Error('MINIMAX_API_KEY environment variable is required');
+  }
   const ai = new MiniMaxAI(apiKey);
   return ai.generateEstimate(request);
 }
