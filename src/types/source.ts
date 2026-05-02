@@ -4,6 +4,7 @@ export enum SourceCategory {
   FINANCIAL = 'financial',
   SPORTS = 'sports',
   SOCIAL = 'social',
+  WEB = 'web',  // Crawl4AI web scraping
 }
 
 export enum FeedType {
