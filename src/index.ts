@@ -9,10 +9,10 @@ import { logWsEvent } from './websocket/events.js';
 import { evaluateMarketForWebSocket, handleBestBidAskUpdate, handleMarketResolved } from './websocket/integration.js';
 import type { Config, SafetyState } from './types/index.js';
 import { SafetyModule } from './safety/index.js';
-import { createClobClient } from './api/clob.js';
+import { createClobClient, getUSDCBalance } from './api/clob.js';
 import { createCycleManager } from './betting/index.js';
 import type { CycleManager } from './betting/index.js';
-import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram } from './api/telegram.js';
+import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram, updateBotStatus } from './api/telegram.js';
 
 let isHealthy = false;
 let wsClient: PolymarketWsClient | null = null;
@@ -160,6 +160,14 @@ async function main(): Promise<void> {
 
     if (!config.dryRun) {
       clobClient = await createClobClient(config);
+      const realBalance = await getUSDCBalance();
+      const effectiveBankroll = realBalance * config.safety.bankrollUsagePct;
+      updateBotStatus({
+        wsConnected: false,
+        realBalance,
+        testMode: process.env.TEST_EXECUTION === 'true',
+      });
+      logger.info({ realBalance, effectiveBankroll, bankrollUsagePct: config.safety.bankrollUsagePct }, 'Wallet balance loaded');
     }
 
     const router = new EventRouter();
@@ -191,6 +199,7 @@ async function main(): Promise<void> {
     logger.info({ msg: 'Connecting to Polymarket WebSocket...' });
     await wsClient.connect();
 
+    updateBotStatus({ wsConnected: true });
     isHealthy = true;
     logger.info({ msg: 'Bot running continuously, press Ctrl+C to stop' });
 

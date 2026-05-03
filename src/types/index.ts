@@ -27,6 +27,7 @@ export interface SafetyConfig {
   maxPositionSizePct: number;  // e.g., 0.08 = 8%
   dailyLossLimitPct: number;   // e.g., 0.05 = 5%
   drawdownKillSwitchPct: number; // e.g., 0.15 = 15%
+  bankrollUsagePct: number;   // e.g., 0.50 = 50% of real balance used as bankroll
 }
 
 // Bot configuration

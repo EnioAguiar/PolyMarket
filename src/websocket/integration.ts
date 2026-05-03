@@ -4,7 +4,7 @@ import { SafetyModule } from '../safety/index.js';
 import { logBetDecision } from '../logging/index.js';
 import { getOrderBook, getMidPrice, hasLiquidity, placeMarketOrder } from '../api/clob.js';
 import { checkSlippage } from '../execution/index.js';
-import { notifyBetPlaced } from '../api/telegram.js';
+import { notifyBetPlaced, notifyError, updateBotStatus } from '../api/telegram.js';
 import pino from 'pino';
 
 const oddsCache = new Map<string, { bid: number; ask: number; timestamp: number }>();
@@ -61,8 +61,11 @@ export async function evaluateMarketForWebSocket(
     orderbook = await getOrderBook(yesTokenId);
   } catch (error) {
     logger.error({ marketId: event.market, error }, 'Failed to fetch orderbook');
+    notifyError(`Orderbook fetch failed for ${event.market}: ${error}`);
     return;
   }
+
+  updateBotStatus({ marketsProcessed: 1 });
 
   if (!hasLiquidity(orderbook, 1)) {
     logger.debug({ marketId: event.market }, 'Insufficient liquidity');
@@ -148,6 +151,7 @@ export async function evaluateMarketForWebSocket(
   const execResult = await placeMarketOrder(yesTokenId, 'BUY', maxPosition);
 
   if (execResult.success) {
+    updateBotStatus({ betsPlaced: 1 });
     logger.info({
       marketId: event.market,
       positionSize: maxPosition,

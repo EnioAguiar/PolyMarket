@@ -1,11 +1,15 @@
 import { ClobClient, OrderType, Side } from '@polymarket/clob-client-v2';
-import { createWalletClient, http } from 'viem';
+import { createWalletClient, http, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { polygon } from 'viem/chains';
 import type { Config, OrderBook, OrderBookEntry } from '../types/index.js';
 import { getLogger } from '../logging/index.js';
 
 let clobClient: ClobClient | null = null;
+let walletAddress: `0x${string}` | null = null;
+
+// USDC contract on Polygon
+const USDC_ADDRESS = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' as const;
 
 export interface OrderExecutionResult {
   success: boolean;
@@ -57,6 +61,60 @@ export function getClobClient(): ClobClient {
     throw new Error('CLOB client not initialized. Call createClobClient(config) first.');
   }
   return clobClient;
+}
+
+/**
+ * Get wallet address from private key
+ */
+export function getWalletAddress(): `0x${string}` {
+  if (!walletAddress) {
+    const privateKey = process.env.PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error('PRIVATE_KEY environment variable is required');
+    }
+    const account = privateKeyToAccount(privateKey as `0x${string}`);
+    walletAddress = account.address;
+  }
+  return walletAddress;
+}
+
+/**
+ * Get USDC balance from wallet via viem public client
+ */
+export async function getUSDCBalance(): Promise<number> {
+  const logger = getLogger();
+  try {
+    const publicClient = createPublicClient({
+      chain: polygon,
+      transport: http(),
+    });
+
+    const address = getWalletAddress();
+
+    // ERC-20 balanceOf function signature
+    const balance = await publicClient.readContract({
+      address: USDC_ADDRESS,
+      abi: [
+        {
+          inputs: [{ name: 'account', type: 'address' }],
+          name: 'balanceOf',
+          outputs: [{ name: '', type: 'uint256' }],
+          stateMutability: 'view',
+          type: 'function',
+        },
+      ],
+      functionName: 'balanceOf',
+      args: [address],
+    });
+
+    // USDC has 6 decimals
+    const usdcBalance = Number(balance) / 1e6;
+    logger.debug({ address, balance: usdcBalance }, 'USDC balance retrieved');
+    return usdcBalance;
+  } catch (error) {
+    logger.error({ error }, 'Failed to get USDC balance');
+    return 0;
+  }
 }
 
 /**

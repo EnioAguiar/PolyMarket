@@ -60,7 +60,7 @@ async function testMiniMax() {
     const { initLogger } = await import('./logging/index.js');
     initLogger({
       dryRun: true,
-      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15 },
+      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15, bankrollUsagePct: 0.50 },
       logging: { level: 'info', pretty: false },
       polymarket: { host: 'polymarket.com', gammaHost: 'gamma.polymarket.com', chainId: 137 },
     });

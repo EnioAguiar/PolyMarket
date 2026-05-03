@@ -9,6 +9,27 @@ let cycleManagerRef: any = null;
 let safetyModuleRef: any = null;
 let bankrollRef: any = null;
 
+interface BotStatus {
+  wsConnected: boolean;
+  marketsProcessed: number;
+  betsPlaced: number;
+  errorsCount: number;
+  lastError?: string;
+  lastUpdate: Date;
+  realBalance: number;
+  testMode: boolean;
+}
+
+let botStatus: BotStatus = {
+  wsConnected: false,
+  marketsProcessed: 0,
+  betsPlaced: 0,
+  errorsCount: 0,
+  lastUpdate: new Date(),
+  realBalance: 0,
+  testMode: true,
+};
+
 export interface TelegramConfig {
   botToken: string;
   chatId?: string;
@@ -117,6 +138,50 @@ export function setSafetyModule(sm: any): void {
 
 export function setBankroll(b: any): void {
   bankrollRef = b;
+}
+
+export function updateBotStatus(update: Partial<BotStatus>): void {
+  botStatus = { ...botStatus, ...update, lastUpdate: new Date() };
+}
+
+export function getBotStatusInfo(): BotStatus {
+  return { ...botStatus };
+}
+
+export function notifyBotStatus(): void {
+  if (!bot) return;
+
+  const status = botStatus;
+  const testModeLabel = status.testMode ? '🧪 TEST MODE' : '🚀 LIVE';
+
+  const msg = `${testModeLabel} *Bot Status*
+
+WS: ${status.wsConnected ? '✅' : '❌'}
+Markets: ${status.marketsProcessed}
+Bets: ${status.betsPlaced}
+Errors: ${status.errorsCount}
+Balance: $${status.realBalance.toFixed(2)}
+${status.lastError ? `Last Error: \`${status.lastError.substring(0, 50)}...\`` : ''}
+Updated: ${status.lastUpdate.toLocaleTimeString()}`;
+
+  bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID || '', msg, { parse_mode: 'Markdown' })
+    .catch(err => logger.error({ err }, 'Failed to send status notification'));
+}
+
+export function notifyError(error: string): void {
+  if (!bot) return;
+
+  botStatus.errorsCount++;
+  botStatus.lastError = error;
+
+  const msg = `⚠️ *Bot Error*
+
+\`${error.substring(0, 200)}\`
+
+Errors: ${botStatus.errorsCount}`;
+
+  bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID || '', msg, { parse_mode: 'Markdown' })
+    .catch(err => logger.error({ err }, 'Failed to send error notification'));
 }
 
 export function notifyBetPlaced(bet: {

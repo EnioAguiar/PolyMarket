@@ -20,6 +20,7 @@ export interface SafetyConfig {
     maxPositionSizePct: number;
     dailyLossLimitPct: number;
     drawdownKillSwitchPct: number;
+    bankrollUsagePct: number;
 }
 export interface Config {
     dryRun: boolean;
