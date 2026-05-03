@@ -267,8 +267,8 @@ function getBankrollStatus(): any {
   }
   const safetyState = safetyModuleRef?.getState?.() || {};
   return {
-    current: safetyState.currentBankroll || 1000,
-    initial: safetyState.initialBankroll || 1000,
+    current: safetyState.currentBankroll || 0,
+    initial: safetyState.initialBankroll || 0,
     pnl: safetyState.totalPnl || 0,
     roi: safetyState.roi || 0,
   };

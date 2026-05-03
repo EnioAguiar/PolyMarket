@@ -39,13 +39,14 @@ export class SafetyModule {
       };
     }
 
-    const positionCheck = checkPositionSize(input, this.config);
+    const effectiveBankroll = input.bankroll ?? this.bankroll;
+    const positionCheck = checkPositionSize({ positionSize: input.positionSize, odds: input.odds }, effectiveBankroll, this.config);
     if (!positionCheck.passed) return positionCheck;
 
-    const dailyLossCheck = this.dailyLossTracker.checkDailyLoss(input.bankroll);
+    const dailyLossCheck = this.dailyLossTracker.checkDailyLoss(effectiveBankroll);
     if (!dailyLossCheck.passed) return dailyLossCheck;
 
-    const drawdownCheck = this.drawdownTracker.checkDrawdown(input.bankroll);
+    const drawdownCheck = this.drawdownTracker.checkDrawdown(effectiveBankroll);
     if (!drawdownCheck.passed) return drawdownCheck;
 
     return {

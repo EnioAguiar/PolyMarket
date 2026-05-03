@@ -1,14 +1,20 @@
-import type { BetCheckInput, SafetyCheckResult, SafetyModuleConfig } from './types.js';
+import type { SafetyCheckResult, SafetyModuleConfig } from './types.js';
+
+export interface PositionSizeCheckInput {
+  positionSize: number;
+  odds: number;
+}
 
 /**
  * Check if a bet exceeds the maximum position size limit (BANK-01)
  * Max position size: 5-10% of bankroll per bet (configurable in config.yaml)
  */
 export function checkPositionSize(
-  input: BetCheckInput,
+  input: PositionSizeCheckInput,
+  bankroll: number,
   config: SafetyModuleConfig
 ): SafetyCheckResult {
-  const maxPositionValue = input.bankroll * config.maxPositionSizePct;
+  const maxPositionValue = bankroll * config.maxPositionSizePct;
   const positionValue = input.positionSize;
   
   if (positionValue > maxPositionValue) {

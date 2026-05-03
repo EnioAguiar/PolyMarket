@@ -144,8 +144,7 @@ async function main(): Promise<void> {
       totalDrawdown: 0,
       isKillSwitchActive: false,
     };
-    const initialBankroll = 1000;
-    safetyModule = new SafetyModule(config, initialState, initialBankroll);
+    safetyModule = new SafetyModule(config, initialState, 0);
 
     setSafetyModule(safetyModule);
     setCycleManager(cycleManager);
@@ -163,6 +162,7 @@ async function main(): Promise<void> {
       const realBalance = await getUSDCBalance();
       const effectiveBankroll = realBalance * config.safety.bankrollUsagePct;
       safetyModule = new SafetyModule(config, initialState, effectiveBankroll);
+      setSafetyModule(safetyModule);
       updateBotStatus({
         wsConnected: false,
         realBalance,
@@ -170,7 +170,8 @@ async function main(): Promise<void> {
       });
       logger.info({ realBalance, effectiveBankroll, bankrollUsagePct: config.safety.bankrollUsagePct }, 'Wallet balance loaded');
     } else {
-      safetyModule = new SafetyModule(config, initialState, 1000);
+      safetyModule = new SafetyModule(config, initialState, 0);
+      setSafetyModule(safetyModule);
     }
 
     const router = new EventRouter();

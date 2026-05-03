@@ -79,7 +79,6 @@ export async function evaluateMarketForWebSocket(
   }
 
   const expectedPrice = odds;
-  const bankroll = 1000;
   const maxPosition = safetyModule.getMaxPositionSizeForOdds(odds);
 
   if (maxPosition < MIN_BET_AMOUNT) {
@@ -87,7 +86,7 @@ export async function evaluateMarketForWebSocket(
     return;
   }
 
-  const safetyResult = safetyModule.checkBet({ odds, positionSize: maxPosition, bankroll });
+  const safetyResult = safetyModule.checkBet({ odds, positionSize: maxPosition });
   if (!safetyResult.passed) {
     logger.info(
       { marketId: event.market, reason: safetyResult.message, odds, maxPosition },

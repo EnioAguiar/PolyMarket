@@ -17,7 +17,7 @@ export interface SafetyCheckResult {
 export interface BetCheckInput {
   odds: number;
   positionSize: number;
-  bankroll: number;
+  bankroll?: number;
 }
 
 /**

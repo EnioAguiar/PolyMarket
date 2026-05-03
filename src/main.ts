@@ -1,7 +1,7 @@
 import { loadConfig, isDryRun } from './config/index.js';
 import { initLogger, getLogger, logBetDecision } from './logging/index.js';
 import { fetchMarkets, filterByCategory, filterByTimeHorizon, getYesTokenId } from './api/polymarket.js';
-import { getOrderBook, getMidPrice, createClobClient, hasLiquidity } from './api/clob.js';
+import { getOrderBook, getMidPrice, createClobClient, hasLiquidity, getUSDCBalance } from './api/clob.js';
 import { SafetyModule } from './safety/index.js';
 import type { Market, SafetyState } from './types/index.js';
 
@@ -12,8 +12,12 @@ export async function runBotCycle(): Promise<void> {
   logger.info({ dryRun: config.dryRun }, 'Bot cycle starting');
   
   let clobClient = null;
+  let effectiveBankroll = 1000;
   if (!config.dryRun) {
     clobClient = await createClobClient(config);
+    const realBalance = await getUSDCBalance();
+    effectiveBankroll = realBalance * config.safety.bankrollUsagePct;
+    logger.info({ realBalance, effectiveBankroll }, 'Wallet balance loaded');
   }
   
   const initialState: SafetyState = {
@@ -21,8 +25,7 @@ export async function runBotCycle(): Promise<void> {
     totalDrawdown: 0,
     isKillSwitchActive: false,
   };
-  const initialBankroll = 1000;
-  const safetyModule = new SafetyModule(config, initialState, initialBankroll);
+  const safetyModule = new SafetyModule(config, initialState, effectiveBankroll);
   
   if (safetyModule.isKillSwitchActive()) {
     logger.warn({ msg: 'KILL SWITCH ACTIVE - bot halted' });
@@ -147,13 +150,11 @@ async function evaluateMarket(
     };
   }
   
-  const bankroll = 1000;
   const maxPosition = safetyModule.getMaxPositionSizeForOdds(odds);
   
   const safetyResult = safetyModule.checkBet({
     odds,
     positionSize: maxPosition,
-    bankroll,
   });
   
   if (!safetyResult.passed) {
