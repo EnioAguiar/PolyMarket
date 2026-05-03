@@ -159,7 +159,7 @@ async function main(): Promise<void> {
     }
 
     if (!config.dryRun) {
-      clobClient = createClobClient(config);
+      clobClient = await createClobClient(config);
     }
 
     const router = new EventRouter();

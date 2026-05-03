@@ -13,7 +13,7 @@ export async function runBotCycle(): Promise<void> {
   
   let clobClient = null;
   if (!config.dryRun) {
-    clobClient = createClobClient(config);
+    clobClient = await createClobClient(config);
   }
   
   const initialState: SafetyState = {

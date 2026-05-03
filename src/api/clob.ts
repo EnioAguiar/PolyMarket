@@ -20,7 +20,8 @@ export interface OrderExecutionResult {
  * Uses viem wallet client as required by @polymarket/clob-client-v2
  * Requires PRIVATE_KEY environment variable (hex string with 0x prefix)
  */
-export function createClobClient(config: Config): ClobClient {
+export async function createClobClient(config: Config): Promise<ClobClient> {
+  const logger = getLogger();
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) {
     throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
@@ -37,6 +38,13 @@ export function createClobClient(config: Config): ClobClient {
   const chain = config.polymarket.chainId;
 
   clobClient = new ClobClient({ host, chain, signer: walletClient });
+
+  try {
+    const creds = await clobClient.createOrDeriveApiKey();
+    logger.info({ msg: 'CLOB API key derived successfully' });
+  } catch (error) {
+    logger.warn({ error, msg: 'Could not derive API key - L2 auth may be limited' });
+  }
 
   return clobClient;
 }
