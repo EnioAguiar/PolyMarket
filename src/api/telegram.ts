@@ -43,6 +43,8 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
 
   bot = new Telegraf(config.botToken);
 
+  process.setMaxListeners(20);
+
   bot.start((ctx) => {
     ctx.reply(
       '🤖 Polymarket Bot\n\n' +

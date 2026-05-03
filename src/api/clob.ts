@@ -4,6 +4,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { polygon } from 'viem/chains';
 import type { Config, OrderBook, OrderBookEntry } from '../types/index.js';
 import { getLogger } from '../logging/index.js';
+import { createSharedPublicClient } from './http.js';
 
 let clobClient: ClobClient | null = null;
 let walletAddress: `0x${string}` | null = null;
@@ -84,10 +85,7 @@ export function getWalletAddress(): `0x${string}` {
 export async function getUSDCBalance(): Promise<number> {
   const logger = getLogger();
   try {
-    const publicClient = createPublicClient({
-      chain: polygon,
-      transport: http(),
-    });
+    const publicClient = createSharedPublicClient();
 
     const address = getWalletAddress();
 

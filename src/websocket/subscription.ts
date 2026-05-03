@@ -1,4 +1,7 @@
 import type { SubscriptionMessage, SubscriptionUpdate } from './types.js';
+import pino from 'pino';
+
+const logger = pino({ level: 'debug' });
 
 export class SubscriptionManager {
   private subscribedAssets: Set<string> = new Set();
@@ -28,10 +31,12 @@ export class SubscriptionManager {
 
   add(assetId: string): void {
     this.subscribedAssets.add(assetId);
+    logger.debug({ assetId, total: this.subscribedAssets.size }, 'Subscription added');
   }
 
   remove(assetId: string): void {
     this.subscribedAssets.delete(assetId);
+    logger.debug({ assetId, total: this.subscribedAssets.size }, 'Subscription removed');
   }
 
   has(assetId: string): boolean {
@@ -44,6 +49,7 @@ export class SubscriptionManager {
 
   clear(): void {
     this.subscribedAssets.clear();
+    logger.debug({ msg: 'All subscriptions cleared' });
   }
 
   count(): number {

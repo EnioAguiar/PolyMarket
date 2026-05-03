@@ -40,6 +40,33 @@ function healthCheck(req: http.IncomingMessage, res: http.ServerResponse): void 
     return;
   }
 
+  if (req.url === '/debug' && req.method === 'GET') {
+    const botStatus = safetyModule?.getState();
+    const cycleStats = cycleManager?.getStats();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      timestamp: new Date().toISOString(),
+      wsConnected: wsClient?.isConnected() ?? false,
+      wsReconnectAttempts: wsClient?.getReconnectAttempts() ?? 0,
+      safety: {
+        dailyLoss: botStatus?.dailyLoss ?? 0,
+        totalDrawdown: botStatus?.totalDrawdown ?? 0,
+        isKillSwitchActive: botStatus?.isKillSwitchActive ?? false,
+      },
+      cycle: {
+        status: cycleStats?.status ?? 'unknown',
+        betsTotal: cycleStats?.betsTotal ?? 0,
+        betsPending: cycleStats?.betsPending ?? 0,
+        lockedMarkets: cycleStats?.lockedMarkets ?? 0,
+        timeInCycleMs: cycleStats?.timeInCycleMs ?? null,
+      },
+      mutex: {
+        lockedCount: cycleManager ? [...(cycleManager as any).mutex?.locked || []].length : 0,
+      },
+    }));
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'Not found' }));
 }

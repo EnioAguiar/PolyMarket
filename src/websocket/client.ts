@@ -80,7 +80,11 @@ export class PolymarketWsClient {
       }
 
       const event = JSON.parse(message) as WsEvent;
-      this.logger.debug({ eventType: event.event_type }, 'Received WebSocket event');
+      this.logger.info({
+        eventType: event.event_type,
+        market: (event as any).market || (event as any).id || 'unknown',
+        assetId: (event as any).asset_id || (event as any).assets_ids?.[0] || 'none',
+      }, 'Received WebSocket event');
       this.router.route(event);
     } catch (error) {
       this.logger.error({ error, msg: 'Failed to parse WebSocket message' });
@@ -111,7 +115,11 @@ export class PolymarketWsClient {
 
     const message = this.subscriptions.getSubscriptionMessage();
     this.ws.send(JSON.stringify(message));
-    this.logger.info({ assetCount: this.subscriptions.count() }, 'Sent subscription message');
+    this.logger.info({
+      assetCount: this.subscriptions.count(),
+      assets: this.subscriptions.getAll().slice(0, 5),
+      subscriptionMsg: message,
+    }, 'Sent subscription message');
   }
 
   updateSubscription(assetId: string, subscribe: boolean): void {
