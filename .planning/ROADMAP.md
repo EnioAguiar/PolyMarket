@@ -118,7 +118,7 @@ Mutex: Prevents duplicate bets on same market from reconnections
 
 **Plans:**
 - [x] 05-01-PLAN.md — Cycle management (max bets, 24h wait) + Mutex lock
-- [ ] 05-02-PLAN.md — Telegram bot interface (status, pause, resume)
+- [x] 05-02-PLAN.md — Telegram bot interface (status, pause, resume)
 
 ---
 
@@ -130,9 +130,9 @@ Mutex: Prevents duplicate bets on same market from reconnections
 | 2 | ✅ Complete | 4/4 | 100% |
 | 3 | ✅ Complete | 2/2 | 100% |
 | 4 | ✅ Complete | 2/2 | 100% |
-| 5 | 🚧 In Progress | 1/2 | 05-01 done |
+| 5 | ✅ Complete | 2/2 | 100% |
 
-**Overall:** 12/13 plans complete (92%)
+**Overall:** 13/13 plans complete (100%)
 
 ---
 
