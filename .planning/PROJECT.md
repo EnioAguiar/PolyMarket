@@ -8,59 +8,63 @@ AI-driven prediction market bot for Polymarket that continuously monitors market
 
 Make profitable short-term betting decisions through systematic AI-powered research, source classification, and disciplined bankroll management.
 
+## Current Milestone: v1.1 Production Betting
+
+**Goal:** Bot places real bets with full research pipeline and AI decision support.
+
+**Target features:**
+- Real order execution (not dry-run)
+- Full research flow (10+ sources)
+- AI-powered bet/skip decisions
+
 ## Requirements
 
-### Validated
+### Validated (v1.0)
 
-(None yet — ship to validate)
+- ✓ **LOOP-01** — Continuous loop: monitor markets → research → analyze → decide → execute — v1.0
+- ✓ **LOOP-02** — Support markets from 5 minutes to 24 hours — v1.0
+- ✓ **CATEG-01** — Category-specific research systems — v1.0
+- ✓ **SOURCE-01** — Source database with star rating — v1.0
+- ✓ **EXEC-01** — Polymarket API client (dry-run) — v1.0
+- ✓ **BANK-01** — Daily bankroll limit with configurable stake — v1.0
+- ✓ **STACK-01** — TypeScript + Python stack — v1.0
+- ✓ **DEPLOY-01** — Railway deployment — v1.0
 
-### Active
+### Active (v1.1)
 
-- [ ] **LOOP-01**: Continuous loop: monitor markets → research → analyze → decide → execute
-- [ ] **LOOP-02**: Support markets from 5 minutes to 24 hours
-- [ ] **CATEG-01**: Category-specific research systems (Crypto, Financial, News, Sports)
-- [ ] **SOURCE-01**: Source database with star rating (1-5), minimum ★3 to use
-- [ ] **SOURCE-02**: Minimum 10 sources researched before decision
-- [ ] **RESEARCH-01**: Research system per category optimized for best sources in that domain
-- [ ] **ANALYSIS-01**: AI-powered source classification and odds analysis
-- [ ] **EXEC-01**: Automatic bet execution via Polymarket API
-- [ ] **BANK-01**: Daily bankroll limit with configurable stake per bet
-- [ ] **STACK-01**: TypeScript + Python stack
-- [ ] **DEPLOY-01**: Railway deployment with scheduler for continuous loop
+- [ ] **EXEC-01v2**: Bot places market orders (not dry-run)
+- [ ] **EXEC-02**: Position size follows bankroll rules (5% fixed)
+- [ ] **EXEC-03**: Slippage protection on orders
+- [ ] **RES-01**: ResearchChain collects from all sources
+- [ ] **RES-02**: Minimum 10 sources enforced before decision
+- [ ] **RES-03**: Bayesian confidence scoring applied
+- [ ] **AI-01**: MiniMax receives research summary
+- [ ] **AI-02**: AI outputs probability estimate
 
 ### Out of Scope
 
-- Long-term bets (>24h) — too much exposure, not the focus
-- Manual betting — fully automated execution only
+- Limit orders — market orders first, limit later
+- Kelly Criterion — fixed 5% is simpler
 - Non-Polymarket markets — Polymarket only for v1
+- Manual betting — fully automated only
 
 ## Context
 
-- Polymarket API documented at docs.polymarket.com
-- Each category needs different data sources:
-  - Crypto: exchange APIs (order books, accumulation), Glassnode, CoinGecko, Twitter
-  - Financial: market APIs (order books, indices), Bloomberg, Reuters
-  - News/Politics: search engines, scrapers, Twitter/X
-  - Sports: sports APIs, Twitter
-- Source database will grow over time with successful bets
-- Railway for deployment with cron/scheduler for loop timing
-
-## Constraints
-
-- **Tech Stack**: TypeScript (core) + Python (data/ML) — why: TS for type safety, Python for data/AI
-- **Execution**: Fully automated — no manual approval for bets
-- **Timeframe**: Short-term only (5min-24h)
-- **Minimum Research**: 10 sources minimum before bet decision
+- Polymarket API docs: docs.polymarket.com
+- v1.0 infrastructure complete: WebSocket, research adapters, safety module, Telegram
+- Wallet connected with PRIVATE_KEY in Railway env vars
+- Next: wire up actual order execution
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| TypeScript + Python | Type safety + AI/data libraries | — Pending |
-| Railway deployment | Scheduler + continuous loop | — Pending |
-| ★3 minimum source rating | Filter noise, keep quality | — Pending |
-| 10 source minimum | Statistical confidence before bet | — Pending |
-| Daily bankroll limit | Risk management | — Pending |
+| TypeScript + Python | Type safety + AI/data libraries | ✓ Validated v1.0 |
+| Railway deployment | Scheduler + continuous loop | ✓ Validated v1.0 |
+| ★3 minimum source rating | Filter noise, keep quality | ✓ Validated v1.0 |
+| 10 source minimum | Statistical confidence before bet | ✓ Validated v1.0 |
+| Fixed 5% position sizing | Simpler than Kelly, less AI hallucination | ✓ Validated v1.0 |
+| Telegram for control | Human oversight via /pause, /resume | ✓ Validated v1.0 |
 
 ## Evolution
 
@@ -80,4 +84,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-13 after initialization*
+*Last updated: 2026-05-03 after v1.0 milestone complete, starting v1.1*
