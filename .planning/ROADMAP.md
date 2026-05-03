@@ -131,8 +131,10 @@ Mutex: Prevents duplicate bets on same market from reconnections
 | 3 | ✅ Complete | 2/2 | 100% |
 | 4 | ✅ Complete | 2/2 | 100% |
 | 5 | ✅ Complete | 2/2 | 100% |
+| 6 | ✅ Complete | 2/2 | 100% |
+| 7 | ✅ Complete | 2/2 | 100% |
 
-**Overall:** 13/13 plans complete (100%)
+**Overall:** 17/17 plans complete (100%) ✓
 
 ---
 
@@ -188,17 +190,12 @@ Plans:
 **Success Criteria:**
 1. Categorized research tools by market type (Crypto, Sports, News, etc)
 2. Railway volume for persistent SQLite storage
-3. Research sources configured and rated (Binance, Google News, Crawl4AI)
+3. Research sources configured and rated (Binance, NewsData, Crawl4AI)
 4. Minimum research quality enforced before bet decision
 
-**Key Decisions Needed:**
-- Categories of research tools
-- Data persistence strategy (Railway volume vs managed database)
-- Integration with existing research chain
-
 **Plans:**
-- [ ] 06-01-PLAN.md — Research tools and categorization
-- [ ] 06-02-PLAN.md — Railway volume and persistence
+- [x] 06-01-PLAN.md — Research tools and categorization
+- [x] 06-02-PLAN.md — Railway volume and persistence
 
 ---
 
@@ -233,7 +230,7 @@ Phase 1 (Core Loop)
 
 **Plans:**
 - [x] 07-01-PLAN.md — Python scraper scripts + TypeScript adapters (Twitter, Reddit)
-- [ ] 07-02-PLAN.md — ResearchChain integration, config, and tests
+- [x] 07-02-PLAN.md — ResearchChain integration, config, and tests
 
 ---
 
