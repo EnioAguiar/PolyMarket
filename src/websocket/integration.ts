@@ -9,7 +9,6 @@ import pino from 'pino';
 
 const oddsCache = new Map<string, { bid: number; ask: number; timestamp: number }>();
 const TEST_EXECUTION = process.env.TEST_EXECUTION === 'true';
-const MIN_BET_AMOUNT = 0.5;
 
 export function updateOddsFromWs(assetId: string, bid: number, ask: number): void {
   oddsCache.set(assetId, { bid, ask, timestamp: Date.now() });
@@ -80,11 +79,6 @@ export async function evaluateMarketForWebSocket(
 
   const expectedPrice = odds;
   const maxPosition = safetyModule.getMaxPositionSizeForOdds(odds);
-
-  if (maxPosition < MIN_BET_AMOUNT) {
-    logger.info({ marketId: event.market, maxPosition, minBet: MIN_BET_AMOUNT }, 'Position size below minimum');
-    return;
-  }
 
   const safetyResult = safetyModule.checkBet({ odds, positionSize: maxPosition });
   if (!safetyResult.passed) {
