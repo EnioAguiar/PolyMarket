@@ -162,12 +162,15 @@ async function main(): Promise<void> {
       clobClient = await createClobClient(config);
       const realBalance = await getUSDCBalance();
       const effectiveBankroll = realBalance * config.safety.bankrollUsagePct;
+      safetyModule = new SafetyModule(config, initialState, effectiveBankroll);
       updateBotStatus({
         wsConnected: false,
         realBalance,
         testMode: process.env.TEST_EXECUTION === 'true',
       });
       logger.info({ realBalance, effectiveBankroll, bankrollUsagePct: config.safety.bankrollUsagePct }, 'Wallet balance loaded');
+    } else {
+      safetyModule = new SafetyModule(config, initialState, 1000);
     }
 
     const router = new EventRouter();
