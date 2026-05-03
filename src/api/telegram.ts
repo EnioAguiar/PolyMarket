@@ -51,7 +51,9 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
       '/cycle - Detailed cycle info\n' +
       '/pause - Pause betting\n' +
       '/resume - Resume betting\n' +
-      '/bankroll - Bankroll state'
+      '/bankroll - Bankroll state\n' +
+      '/testmode - Test mode status\n' +
+      '/balance - Real wallet balance'
     );
   });
 
