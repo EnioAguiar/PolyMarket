@@ -62,7 +62,9 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
       '/cycle - Detailed cycle\n' +
       '/pause - Stop betting\n' +
       '/resume - Allow betting\n' +
-      '/bankroll - Bankroll info'
+      '/bankroll - Bankroll info\n' +
+      '/testmode - Test mode status\n' +
+      '/balance - Real wallet balance'
     );
   });
 
@@ -73,6 +75,30 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
     } catch (error) {
       logger.error({ error }, 'Error in /status command');
       ctx.reply('Error getting status');
+    }
+  });
+
+  bot.command('testmode', (ctx) => {
+    const isTestMode = process.env.TEST_EXECUTION === 'true';
+    const modeText = isTestMode ? '🧪 TEST MODE - NO real bets' : '🚀 LIVE - Real bets enabled';
+    ctx.reply(modeText);
+  });
+
+  bot.command('balance', async (ctx) => {
+    try {
+      const { getUSDCBalance } = await import('./clob.js');
+      const balance = await getUSDCBalance();
+      const bankrollUsagePct = 50;
+      const effectiveBankroll = balance * (bankrollUsagePct / 100);
+      ctx.reply(
+        `💰 *Wallet Balance*\n\n` +
+        `Real: $${balance.toFixed(2)} USDC\n` +
+        `Using: ${bankrollUsagePct}% ($${effectiveBankroll.toFixed(2)})\n` +
+        `Max bet: $${(effectiveBankroll * 0.08).toFixed(2)}`
+      );
+    } catch (error) {
+      logger.error({ error }, 'Error in /balance command');
+      ctx.reply('Error getting balance');
     }
   });
 
