@@ -43,9 +43,9 @@
 4. Order confirmation logged with transaction hash
 
 **Plans:**
-- [ ] 01-01-PLAN.md — Place order function (connect wallet, call API)
-- [ ] 01-02-PLAN.md — Slippage protection and order validation
-- [ ] 01-03-PLAN.md — Test with real small bet
+- [x] 01-01-PLAN.md — Place order function (connect wallet, call API)
+- [x] 01-02-PLAN.md — Slippage protection and order validation
+- [x] 01-03-PLAN.md — Test with real small bet
 
 ---
 

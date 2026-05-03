@@ -1,7 +1,7 @@
 import { checkSlippage } from './slippage.js';
-import { placeLimitOrder, placeMarketOrder, OrderType } from './limit-orders.js';
 import { checkArbitrage, calculateArbitrageProfit } from './arbitrage.js';
+import { placeMarketOrder, placeLimitOrder } from '../api/clob.js';
 
 export { checkSlippage } from './slippage.js';
-export { placeLimitOrder, placeMarketOrder, OrderType } from './limit-orders.js';
 export { checkArbitrage, calculateArbitrageProfit } from './arbitrage.js';
+export { placeMarketOrder, placeLimitOrder } from '../api/clob.js';

@@ -16,6 +16,7 @@ export interface OrderResult {
   executedPrice?: number;
   orderType: OrderType;
   reason: string;
+  txHash?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 30000; // 30 seconds

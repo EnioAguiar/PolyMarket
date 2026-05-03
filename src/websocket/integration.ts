@@ -2,10 +2,13 @@ import type { WsMarketEvent, WsBestBidAskEvent, WsMarketResolvedEvent } from './
 import type { Config, SafetyState, OrderBook } from '../types/index.js';
 import { SafetyModule } from '../safety/index.js';
 import { logBetDecision } from '../logging/index.js';
-import { getOrderBook, getMidPrice, hasLiquidity } from '../api/clob.js';
+import { getOrderBook, getMidPrice, hasLiquidity, placeMarketOrder } from '../api/clob.js';
+import { checkSlippage } from '../execution/index.js';
 import pino from 'pino';
 
 const oddsCache = new Map<string, { bid: number; ask: number; timestamp: number }>();
+const TEST_EXECUTION = process.env.TEST_EXECUTION === 'true';
+const MIN_BET_AMOUNT = 5;
 
 export function updateOddsFromWs(assetId: string, bid: number, ask: number): void {
   oddsCache.set(assetId, { bid, ask, timestamp: Date.now() });
@@ -38,8 +41,19 @@ export async function evaluateMarketForWebSocket(
   const yesTokenId = event.assets_ids[0];
   if (!yesTokenId) return;
 
-  const minMs = 5 * 60 * 1000;
-  const maxMs = 24 * 60 * 60 * 1000;
+  if (TEST_EXECUTION) {
+    logger.warn({ marketId: event.market, msg: 'TEST MODE - execution disabled' });
+    logBetDecision({
+      marketId: event.market,
+      odds: 0,
+      positionSize: 0,
+      dryRun: true,
+      action: 'monitor',
+      safetyCheck: 'none',
+      reason: 'TEST_EXECUTION mode - would place order but disabled',
+    });
+    return;
+  }
 
   let orderbook: OrderBook;
   try {
@@ -60,8 +74,14 @@ export async function evaluateMarketForWebSocket(
     return;
   }
 
+  const expectedPrice = odds;
   const bankroll = 1000;
   const maxPosition = safetyModule.getMaxPositionSizeForOdds(odds);
+
+  if (maxPosition < MIN_BET_AMOUNT) {
+    logger.info({ marketId: event.market, maxPosition, minBet: MIN_BET_AMOUNT }, 'Position size below minimum');
+    return;
+  }
 
   const safetyResult = safetyModule.checkBet({ odds, positionSize: maxPosition, bankroll });
   if (!safetyResult.passed) {
@@ -81,6 +101,25 @@ export async function evaluateMarketForWebSocket(
     return;
   }
 
+  const currentPrice = odds;
+  const slippageResult = checkSlippage({ expectedPrice, executionPrice: currentPrice }, 0.10);
+  if (!slippageResult.allowed) {
+    logger.warn(
+      { marketId: event.market, slippage: slippageResult.slippagePct, reason: slippageResult.reason },
+      'Slippage exceeded - aborting bet'
+    );
+    logBetDecision({
+      marketId: event.market,
+      odds,
+      positionSize: maxPosition,
+      dryRun: config.dryRun,
+      action: 'skip',
+      safetyCheck: 'slippage',
+      reason: slippageResult.reason,
+    });
+    return;
+  }
+
   logger.info(
     {
       marketId: event.market,
@@ -92,14 +131,43 @@ export async function evaluateMarketForWebSocket(
     'Bet decision from WebSocket event'
   );
 
+  if (config.dryRun) {
+    logBetDecision({
+      marketId: event.market,
+      odds,
+      positionSize: maxPosition,
+      dryRun: true,
+      action: 'monitor',
+      safetyCheck: 'passed',
+      reason: 'Event-driven evaluation from WebSocket new_market event',
+    });
+    return;
+  }
+
+  const execResult = await placeMarketOrder(yesTokenId, 'BUY', maxPosition);
+
+  if (execResult.success) {
+    logger.info({
+      marketId: event.market,
+      positionSize: maxPosition,
+      executedPrice: execResult.executedPrice,
+      txHash: execResult.txHash,
+      orderID: execResult.orderID,
+    }, 'Order confirmed');
+  } else {
+    logger.error({ marketId: event.market, reason: execResult.reason }, 'Order failed');
+  }
+
   logBetDecision({
     marketId: event.market,
     odds,
     positionSize: maxPosition,
-    dryRun: config.dryRun,
-    action: config.dryRun ? 'monitor' : 'bet',
+    dryRun: false,
+    action: execResult.success ? 'bet' : 'skip',
     safetyCheck: 'passed',
-    reason: 'Event-driven evaluation from WebSocket new_market event',
+    reason: execResult.success
+      ? `Order confirmed: ${execResult.reason}`
+      : `Execution failed: ${execResult.reason}`,
   });
 }
 

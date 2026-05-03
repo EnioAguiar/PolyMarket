@@ -52,6 +52,7 @@ All 17 plans across 7 phases complete. Bot is production-ready with:
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260502-sh1 | fix research sources: use newsdata instead of google, and crawl4ai should search first then scrape | 2026-05-02 | dcb1cf9a | [260502-sh1-fix-research-sources-use-newsdata-instea](./quick/260502-sh1-fix-research-sources-use-newsdata-instea/) |
+| 260503-lgn | fix CLOB client viem wallet: replace ethers.Wallet with viem privateKeyToAccount | 2026-05-03 | - | [260503-lgn-fix-clob-client-viem-wallet](./quick/260503-lgn-fix-clob-client-viem-wallet/) |
 
 ## Current Work
 
