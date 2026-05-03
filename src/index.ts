@@ -12,6 +12,7 @@ import { SafetyModule } from './safety/index.js';
 import { createClobClient } from './api/clob.js';
 import { createCycleManager } from './betting/index.js';
 import type { CycleManager } from './betting/index.js';
+import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram } from './api/telegram.js';
 
 let isHealthy = false;
 let wsClient: PolymarketWsClient | null = null;
@@ -60,12 +61,14 @@ function setupGracefulShutdown(): void {
 
   process.on('SIGINT', () => {
     logger.info({ msg: 'SIGINT received, shutting down gracefully' });
+    stopTelegram();
     wsClient?.close();
     process.exit(0);
   });
 
   process.on('SIGTERM', () => {
     logger.info({ msg: 'SIGTERM received, shutting down gracefully' });
+    stopTelegram();
     wsClient?.close();
     process.exit(0);
   });
@@ -74,6 +77,10 @@ function setupGracefulShutdown(): void {
 function handleWsEvent(event: WsEvent, logger: ReturnType<typeof getLogger>): void {
   switch (event.event_type) {
     case 'new_market': {
+      if (isBotPaused()) {
+        logger.debug({ marketId: (event as WsMarketEvent).market }, 'Bot is paused, ignoring new_market');
+        return;
+      }
       if (!cycleManager?.canAcceptBet()) {
         logger.info({ marketId: (event as WsMarketEvent).market }, 'Cycle not accepting bets');
         return;
@@ -139,6 +146,17 @@ async function main(): Promise<void> {
     };
     const initialBankroll = 1000;
     safetyModule = new SafetyModule(config, initialState, initialBankroll);
+
+    setSafetyModule(safetyModule);
+    setCycleManager(cycleManager);
+
+    const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+    if (telegramBotToken) {
+      initTelegram({ botToken: telegramBotToken });
+      logger.info({ msg: 'Telegram bot enabled' });
+    } else {
+      logger.info({ msg: 'Telegram bot disabled (no token)' });
+    }
 
     if (!config.dryRun) {
       clobClient = createClobClient(config);
