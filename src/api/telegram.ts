@@ -119,6 +119,29 @@ export function setBankroll(b: any): void {
   bankrollRef = b;
 }
 
+export function notifyBetPlaced(bet: {
+  marketId: string;
+  positionSize: number;
+  odds: number;
+  executedPrice?: number;
+  txHash?: string;
+  orderID?: string;
+}): void {
+  if (!bot) return;
+
+  const msg = `🎯 *Bet Placed*
+
+Market: \`${bet.marketId}\`
+Size: \`${bet.positionSize}\`
+Odds: \`${(bet.odds * 100).toFixed(1)}%\`
+${bet.executedPrice ? `Execution: \`${bet.executedPrice}\`` : ''}
+${bet.txHash ? `Tx: \`${bet.txHash}\`` : ''}
+${bet.orderID ? `Order: \`${bet.orderID}\`` : ''}`;
+
+  bot.telegram.sendMessage(process.env.TELEGRAM_CHAT_ID || '', msg, { parse_mode: 'Markdown' })
+    .catch(err => logger.error({ err }, 'Failed to send bet notification'));
+}
+
 function getBotStatus(): any {
   const cycleStats = cycleManagerRef?.getStats?.() || {};
   const safetyState = safetyModuleRef?.getState?.() || {};

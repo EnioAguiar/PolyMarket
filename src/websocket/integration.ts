@@ -4,6 +4,7 @@ import { SafetyModule } from '../safety/index.js';
 import { logBetDecision } from '../logging/index.js';
 import { getOrderBook, getMidPrice, hasLiquidity, placeMarketOrder } from '../api/clob.js';
 import { checkSlippage } from '../execution/index.js';
+import { notifyBetPlaced } from '../api/telegram.js';
 import pino from 'pino';
 
 const oddsCache = new Map<string, { bid: number; ask: number; timestamp: number }>();
@@ -154,6 +155,15 @@ export async function evaluateMarketForWebSocket(
       txHash: execResult.txHash,
       orderID: execResult.orderID,
     }, 'Order confirmed');
+
+    notifyBetPlaced({
+      marketId: event.market,
+      positionSize: maxPosition,
+      odds,
+      executedPrice: execResult.executedPrice,
+      txHash: execResult.txHash,
+      orderID: execResult.orderID,
+    });
   } else {
     logger.error({ marketId: event.market, reason: execResult.reason }, 'Order failed');
   }
