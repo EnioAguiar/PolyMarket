@@ -43,7 +43,7 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
 
   bot = new Telegraf(config.botToken);
 
-  process.setMaxListeners(20);
+  process.setMaxListeners(30);
 
   bot.start((ctx) => {
     ctx.reply(
@@ -267,12 +267,22 @@ function getBankrollStatus(): any {
   if (bankrollRef) {
     return bankrollRef;
   }
-  const safetyState = safetyModuleRef?.getState?.() || {};
+  
+  if (safetyModuleRef) {
+    const bankroll = (safetyModuleRef as any).bankroll || 0;
+    return {
+      current: bankroll,
+      initial: bankroll,
+      pnl: 0,
+      roi: 0,
+    };
+  }
+  
   return {
-    current: safetyState.currentBankroll || 0,
-    initial: safetyState.initialBankroll || 0,
-    pnl: safetyState.totalPnl || 0,
-    roi: safetyState.roi || 0,
+    current: 0,
+    initial: 0,
+    pnl: 0,
+    roi: 0,
   };
 }
 

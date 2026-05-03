@@ -9,7 +9,7 @@ import pino from 'pino';
 
 const oddsCache = new Map<string, { bid: number; ask: number; timestamp: number }>();
 const TEST_EXECUTION = process.env.TEST_EXECUTION === 'true';
-const MIN_BET_AMOUNT = 5;
+const MIN_BET_AMOUNT = 0.5;
 
 export function updateOddsFromWs(assetId: string, bid: number, ask: number): void {
   oddsCache.set(assetId, { bid, ask, timestamp: Date.now() });
