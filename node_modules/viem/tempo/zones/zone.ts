@@ -25,6 +25,22 @@ export function getPortalAddress(
   return address
 }
 
+type Override = {
+  name: string
+  rpcUrl: string
+}
+
+const overrides = {
+  6: {
+    name: 'Zone A',
+    rpcUrl: 'https://rpc-zone-a.testnet.tempo.xyz',
+  },
+  7: {
+    name: 'Zone B',
+    rpcUrl: 'https://rpc-zone-b.testnet.tempo.xyz',
+  },
+} as const satisfies Record<number, Override>
+
 export const zone = /*#__PURE__*/ from({
   sourceId: tempo.id,
   rpcHost: 'tempo.xyz',
@@ -41,10 +57,12 @@ export function from(options: from.Options) {
     const chainId = ZoneId.toChainId(id)
     const paddedId = String(id).padStart(3, '0')
 
+    const override = (overrides as Record<number, Override>)[id]
+
     return defineChain({
       ...chainConfig,
       id: chainId,
-      name: `Tempo Zone ${paddedId}`,
+      name: override?.name ?? `Tempo Zone ${paddedId}`,
       nativeCurrency: {
         name: 'USD',
         symbol: 'USD',
@@ -52,7 +70,10 @@ export function from(options: from.Options) {
       },
       rpcUrls: {
         default: {
-          http: [`https://rpc-zone-${paddedId}.${options.rpcHost}`],
+          http: [
+            override?.rpcUrl ??
+              `https://rpc-zone-${paddedId}.${options.rpcHost}`,
+          ],
         },
       },
       sourceId: options.sourceId,

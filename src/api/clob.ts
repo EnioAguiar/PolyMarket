@@ -1,4 +1,4 @@
-import { ClobClient, OrderType, Side } from '@polymarket/clob-client-v2';
+import { ClobClient, OrderType, Side, SignatureTypeV2, AssetType } from '@polymarket/clob-client-v2';
 import { createWalletClient, http, createPublicClient } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { polygon } from 'viem/chains';
@@ -8,9 +8,13 @@ import { createSharedPublicClient } from './http.js';
 
 let clobClient: ClobClient | null = null;
 let walletAddress: `0x${string}` | null = null;
+let depositWalletAddress: `0x${string}` | null = null;
 
 // pUSD contract on Polygon (collateral token for trading)
 const PUSD_ADDRESS = '0xC011a7E12a19f7B1f670d46F03B3342E82DFB' as const;
+
+// Deposit wallet factory on Polygon
+const DEPOSIT_WALLET_FACTORY = '0x00000000000Fb5C9ADea0298D729A0CB3823Cc07' as const;
 
 export interface OrderExecutionResult {
   success: boolean;
@@ -20,10 +24,40 @@ export interface OrderExecutionResult {
   reason: string;
 }
 
+export function getDepositWalletAddress(): `0x${string}` {
+  if (!depositWalletAddress) {
+    const privateKey = process.env.PRIVATE_KEY;
+    if (!privateKey) {
+      throw new Error('PRIVATE_KEY environment variable is required');
+    }
+    const account = privateKeyToAccount(privateKey as `0x${string}`);
+    walletAddress = account.address;
+
+    const walletId = account.address.padStart(66, '0').slice(2);
+    const args = '0x' + DEPOSIT_WALLET_FACTORY.slice(2) + walletId;
+    const salt = sha3(args);
+    depositWalletAddress = create2Address(DEPOSIT_WALLET_FACTORY, salt);
+  }
+  return depositWalletAddress;
+}
+
+function sha3(value: string): string {
+  const crypto = require('crypto');
+  return '0x' + crypto.createHash('keccak256').update(Buffer.from(value.slice(2), 'hex')).digest('hex');
+}
+
+function create2Address(factory: string, salt: string): `0x${string}` {
+  const crypto = require('crypto');
+  const factoryBytes = Buffer.from(factory.slice(2), 'hex');
+  const saltBytes = Buffer.from(salt.slice(2), 'hex');
+  const combined = Buffer.concat([factoryBytes, saltBytes]);
+  const hash = crypto.createHash('keccak256').update(combined).digest('hex');
+  return ('0x' + hash.slice(0, 40)) as `0x${string}`;
+}
+
 /**
- * Initialize the CLOB client (EXEC-01: wallet connection)
- * Uses viem wallet client as required by @polymarket/clob-client-v2
- * Requires PRIVATE_KEY environment variable (hex string with 0x prefix)
+ * Initialize the CLOB client with deposit wallet support
+ * Uses POLY_1271 signature type (type 3) for deposit wallet orders
  */
 export async function createClobClient(config: Config): Promise<ClobClient> {
   const logger = getLogger();
@@ -42,13 +76,29 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const host = config.polymarket.host;
   const chain = config.polymarket.chainId;
 
-  clobClient = new ClobClient({ host, chain, signer: walletClient });
+  const depositWallet = getDepositWalletAddress();
+  logger.info({ depositWallet }, 'Using deposit wallet');
+
+  clobClient = new ClobClient({
+    host,
+    chain,
+    signer: walletClient,
+    funderAddress: depositWallet,
+    signatureType: SignatureTypeV2.POLY_1271,
+  });
 
   try {
     const creds = await clobClient.createOrDeriveApiKey();
     logger.info({ msg: 'CLOB API key derived successfully' });
   } catch (error) {
     logger.warn({ error, msg: 'Could not derive API key - L2 auth may be limited' });
+  }
+
+  try {
+    await clobClient.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL });
+    logger.info({ msg: 'Balance allowance updated for deposit wallet' });
+  } catch (error) {
+    logger.warn({ error }, 'Failed to update balance allowance');
   }
 
   return clobClient;
@@ -80,14 +130,15 @@ export function getWalletAddress(): `0x${string}` {
 }
 
 /**
- * Get USDC balance from wallet via viem public client
+ * Get pUSD balance from deposit wallet via viem public client
  */
 export async function getUSDCBalance(): Promise<number> {
   const logger = getLogger();
   try {
     const publicClient = createSharedPublicClient();
 
-    const address = getWalletAddress();
+    const address = getDepositWalletAddress();
+    logger.debug({ address }, 'Reading pUSD balance from deposit wallet');
 
     // ERC-20 balanceOf function signature
     const balance = await publicClient.readContract({
@@ -105,12 +156,12 @@ export async function getUSDCBalance(): Promise<number> {
       args: [address],
     });
 
-    // USDC has 6 decimals
-    const usdcBalance = Number(balance) / 1e6;
-    logger.debug({ address, balance: usdcBalance }, 'USDC balance retrieved');
-    return usdcBalance;
+    // pUSD has 6 decimals
+    const pusdBalance = Number(balance) / 1e6;
+    logger.debug({ address, balance: pusdBalance }, 'pUSD balance retrieved');
+    return pusdBalance;
   } catch (error) {
-    logger.error({ error }, 'Failed to get USDC balance');
+    logger.error({ error }, 'Failed to get pUSD balance');
     return 0;
   }
 }
