@@ -1,5 +1,5 @@
 import { ClobClient, OrderType, Side, SignatureTypeV2, AssetType } from '@polymarket/clob-client-v2';
-import { createWalletClient, http, createPublicClient } from 'viem';
+import { createWalletClient, http, createPublicClient, keccak256, toBytes, getAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { polygon } from 'viem/chains';
 import type { Config, OrderBook, OrderBookEntry } from '../types/index.js';
@@ -11,10 +11,10 @@ let walletAddress: `0x${string}` | null = null;
 let depositWalletAddress: `0x${string}` | null = null;
 
 // pUSD contract on Polygon (collateral token for trading)
-const PUSD_ADDRESS = '0xC011a7E12a19f7B1f670d46F03B3342E82DFB' as const;
+const PUSD_ADDRESS = getAddress('0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB');
 
 // Deposit wallet factory on Polygon
-const DEPOSIT_WALLET_FACTORY = '0x00000000000Fb5C9ADea0298D729A0CB3823Cc07' as const;
+const DEPOSIT_WALLET_FACTORY = getAddress('0x00000000000Fb5C9ADea0298D729A0CB3823Cc07');
 
 export interface OrderExecutionResult {
   success: boolean;
@@ -42,18 +42,14 @@ export function getDepositWalletAddress(): `0x${string}` {
   return depositWalletAddress;
 }
 
-function sha3(value: string): string {
-  const crypto = require('crypto');
-  return '0x' + crypto.createHash('keccak256').update(Buffer.from(value.slice(2), 'hex')).digest('hex');
+function sha3(value: string): `0x${string}` {
+  return keccak256(toBytes(value));
 }
 
-function create2Address(factory: string, salt: string): `0x${string}` {
-  const crypto = require('crypto');
-  const factoryBytes = Buffer.from(factory.slice(2), 'hex');
-  const saltBytes = Buffer.from(salt.slice(2), 'hex');
-  const combined = Buffer.concat([factoryBytes, saltBytes]);
-  const hash = crypto.createHash('keccak256').update(combined).digest('hex');
-  return ('0x' + hash.slice(0, 40)) as `0x${string}`;
+function create2Address(factory: `0x${string}`, salt: `0x${string}`): `0x${string}` {
+  const combinedHex = (factory + salt.slice(2)) as `0x${string}`;
+  const hash = keccak256(toBytes(combinedHex));
+  return ('0x' + hash.slice(2, 42)) as `0x${string}`;
 }
 
 /**
