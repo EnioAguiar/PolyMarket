@@ -52,21 +52,33 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const chain = config.polymarket.chainId;
   logger.info({ host, chain }, 'CLOB config');
 
-  clobClient = new ClobClient({
+  logger.info({ msg: 'Creating temporary client to derive API credentials...' });
+  const tempClient = new ClobClient({
     host,
     chain,
     signer: walletClient,
     signatureType: SignatureTypeV2.POLY_PROXY,
     funderAddress: account.address,
   });
-  logger.info({ msg: 'ClobClient instance created' });
 
+  let creds;
   try {
-    const creds = await clobClient.createOrDeriveApiKey();
-    logger.info({ msg: 'CLOB API key derived successfully' });
+    creds = await tempClient.createOrDeriveApiKey();
+    logger.info({ msg: 'CLOB API key derived successfully', key: creds.key.slice(0, 8) + '...' });
   } catch (error) {
     logger.warn({ error, msg: 'Could not derive API key - L2 auth may be limited' });
   }
+
+  logger.info({ msg: 'Creating authenticated ClobClient with credentials...' });
+  clobClient = new ClobClient({
+    host,
+    chain,
+    signer: walletClient,
+    creds,
+    signatureType: SignatureTypeV2.POLY_PROXY,
+    funderAddress: account.address,
+  });
+  logger.info({ msg: 'ClobClient instance created with L2 auth' });
 
   try {
     await clobClient.updateBalanceAllowance({ asset_type: AssetType.COLLATERAL });
