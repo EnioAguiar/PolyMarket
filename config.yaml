@@ -4,7 +4,7 @@
 dryRun: false  # true = log decisions only, false = execute real trades
 
 safety:
-  maxPositionSizePct: 0.08    # 8% of bankroll per bet (BANK-01)
+  maxPositionSizePct: 0.10    # 10% of bankroll per bet (BANK-01)
   dailyLossLimitPct: 0.05     # 5% daily loss limit (BANK-02)
   drawdownKillSwitchPct: 0.15 # 15% total drawdown triggers kill switch (BANK-03)
   bankrollUsagePct: 0.50      # 50% of real wallet balance to use as bankroll
