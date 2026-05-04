@@ -33,8 +33,9 @@ export function getDepositWalletAddress(): `0x${string}` {
     const account = privateKeyToAccount(privateKey as `0x${string}`);
     walletAddress = account.address;
 
-    const walletId = account.address.padStart(66, '0').slice(2);
-    const args = '0x' + DEPOSIT_WALLET_FACTORY.slice(2) + walletId;
+    const walletId = account.address.slice(2).padStart(64, '0');
+    const factoryAddress = DEPOSIT_WALLET_FACTORY.slice(2);
+    const args = '0x' + factoryAddress + walletId;
     const salt = sha3(args);
     depositWalletAddress = create2Address(DEPOSIT_WALLET_FACTORY, salt);
   }
