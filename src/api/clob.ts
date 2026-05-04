@@ -9,8 +9,8 @@ import { createSharedPublicClient } from './http.js';
 let clobClient: ClobClient | null = null;
 let walletAddress: `0x${string}` | null = null;
 
-// USDC contract on Polygon
-const USDC_ADDRESS = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' as const;
+// pUSD contract on Polygon (collateral token for trading)
+const PUSD_ADDRESS = '0xC011a7E12a19f7B1f670d46F03B3342E82DFB' as const;
 
 export interface OrderExecutionResult {
   success: boolean;
@@ -91,7 +91,7 @@ export async function getUSDCBalance(): Promise<number> {
 
     // ERC-20 balanceOf function signature
     const balance = await publicClient.readContract({
-      address: USDC_ADDRESS,
+      address: PUSD_ADDRESS,
       abi: [
         {
           inputs: [{ name: 'account', type: 'address' }],
