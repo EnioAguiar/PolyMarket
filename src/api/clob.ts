@@ -64,29 +64,58 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const logger = getLogger();
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) {
-    throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
+    const err = new Error('PRIVATE_KEY environment variable is required for CLOB client');
+    logger.error({ err: err.message, stack: err.stack }, 'Missing PRIVATE_KEY');
+    throw err;
   }
 
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
+  logger.info({ msg: 'Creating wallet client...' });
+  let account;
+  try {
+    account = privateKeyToAccount(privateKey as `0x${string}`);
+    logger.info({ address: account.address }, 'Wallet account created');
+  } catch (err) {
+    logger.error({ err, msg: 'Failed to create wallet account from private key' });
+    throw err;
+  }
+  
   const walletClient = createWalletClient({
     account,
     transport: http(),
     chain: polygon,
   });
+  logger.info({ msg: 'Wallet client created' });
 
   const host = config.polymarket.host;
   const chain = config.polymarket.chainId;
+  logger.info({ host, chain }, 'CLOB config');
 
-  const depositWallet = getDepositWalletAddress();
-  logger.info({ depositWallet }, 'Using deposit wallet');
+  let depositWallet: `0x${string}`;
+  try {
+    depositWallet = getDepositWalletAddress();
+    logger.info({ depositWallet }, 'Derived deposit wallet address');
+  } catch (err) {
+    logger.error({ err, msg: 'Failed to derive deposit wallet address' });
+    throw err;
+  }
 
-  clobClient = new ClobClient({
-    host,
-    chain,
-    signer: walletClient,
-    funderAddress: depositWallet,
-    signatureType: SignatureTypeV2.POLY_1271,
-  });
+  logger.info({ msg: 'Creating ClobClient...' });
+  let createdClient: ClobClient;
+  try {
+    createdClient = new ClobClient({
+      host,
+      chain,
+      signer: walletClient,
+      funderAddress: depositWallet,
+      signatureType: SignatureTypeV2.POLY_1271,
+    });
+    logger.info({ msg: 'ClobClient instance created' });
+  } catch (err) {
+    logger.error({ err, msg: 'Failed to create ClobClient', host, chain, signatureType: 'POLY_1271' });
+    throw err;
+  }
+
+  clobClient = createdClient;
 
   try {
     const creds = await clobClient.createOrDeriveApiKey();

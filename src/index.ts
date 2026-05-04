@@ -235,7 +235,8 @@ async function main(): Promise<void> {
     logger.info({ msg: 'Bot running continuously, press Ctrl+C to stop' });
 
   } catch (error) {
-    logger.error({ error, msg: 'Fatal error in bot startup' });
+    const err = error instanceof Error ? error : new Error(String(error));
+    logger.error({ err: err.message, stack: err.stack, msg: 'Fatal error in bot startup' });
     isHealthy = false;
     process.exit(1);
   }
