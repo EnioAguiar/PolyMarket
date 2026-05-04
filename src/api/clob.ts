@@ -181,7 +181,6 @@ export async function placeMarketOrder(
         tokenID: tokenId,
         amount,
         side: orderSide,
-        orderType: OrderType.FOK,
       },
       { tickSize: '0.01' },
       OrderType.FOK
