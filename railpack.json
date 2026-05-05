@@ -1,9 +1,15 @@
 {
   "$schema": "https://schema.railpack.com",
   "provider": "node",
+  "packages": {
+    "python": "3.13"
+  },
   "steps": {
     "install": {
-      "commands": ["npm ci"]
+      "commands": [
+        "npm ci",
+        "/root/.local/bin/mise install python@3.13"
+      ]
     },
     "build": {
       "commands": ["npm run build"]
