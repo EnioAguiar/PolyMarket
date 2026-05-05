@@ -8,5 +8,8 @@
     "build": {
       "commands": ["npm run build"]
     }
+  },
+  "deploy": {
+    "command": "/root/.local/bin/mise exec -- python3 -m pip install -r requirements.txt && npm start"
   }
 }
