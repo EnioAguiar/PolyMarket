@@ -8,8 +8,5 @@
     "build": {
       "commands": ["npm run build"]
     }
-  },
-  "deploy": {
-    "command": "pip install -r requirements.txt && npm start"
   }
 }
