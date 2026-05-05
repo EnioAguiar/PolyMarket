@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: Production Betting
 status: planning
 last_updated: "2026-05-03T17:55:31.334Z"
-last_activity: 2026-05-03
+last_activity: 2026-05-04
 progress:
   total_phases: 0
   completed_phases: 0
@@ -15,7 +15,7 @@ progress:
 
 # State: Polymarket Bot
 
-**Last updated:** 2026-05-03 — MILESTONE v1.0 COMPLETE ✓
+**Last updated:** 2026-05-04 — Quick task 260504-pyfix complete
 
 ## Milestone v1.0 Summary
 
@@ -55,6 +55,7 @@ All 17 plans across 7 phases complete. Bot is production-ready with:
 | 260503-lgn | fix CLOB client viem wallet: replace ethers.Wallet with viem privateKeyToAccount | 2026-05-03 | ff785419 | [260503-lgn-fix-clob-client-viem-wallet](./quick/260503-lgn-fix-clob-client-viem-wallet/) |
 | 260503-tst | test CLOB execution flow: API key derivation + telegram notifications | 2026-05-03 | ec8e460d | [260503-tst-test-clob-execution](./quick/260503-tst-test-clob-execution/) |
 | 260503-bnk | add bankroll percentage system + Telegram status/error logs | 2026-05-03 | 59d50335 | [260503-bnk-bankroll-percentage-telegram-logs](./quick/260503-bnk-bankroll-percentage-telegram-logs/) |
+| 260504-pyfix | fix: minimal railpack.json to avoid mise python install | 2026-05-04 | 63ffd9ff | [260504-pyfix](./quick/260504-pyfix/) |
 
 ## Current Work
 
