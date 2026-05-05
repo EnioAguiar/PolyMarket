@@ -13,6 +13,6 @@
     }
   },
   "deploy": {
-    "command": "/root/.local/bin/mise exec -- python3 -m pip install -r requirements.txt && npm start"
+    "command": "python3 -m ensurepip --upgrade && python3 -m pip install -r requirements.txt && npm start"
   }
 }
