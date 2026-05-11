@@ -1,3 +1,4 @@
+import 'global-agent/bootstrap';
 import { loadConfig, isDryRun } from './config/index.js';
 import { initLogger, getLogger, logBetDecision } from './logging/index.js';
 import { fetchMarkets, filterByCategory, filterByTimeHorizon, getYesTokenId } from './api/polymarket.js';
