@@ -56,13 +56,14 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const chain = config.polymarket.chainId;
   logger.info({ host, chain }, 'CLOB config');
 
+  const funder = depositWalletAddress as `0x${string}`;
   logger.info({ msg: 'Creating temporary client to derive API credentials...' });
   const tempClient = new ClobClient({
     host,
     chain,
     signer: walletClient,
-    signatureType: SignatureTypeV2.POLY_PROXY,
-    funderAddress: depositWalletAddress as `0x${string}`,
+    signatureType: SignatureTypeV2.POLY_1271,
+    funderAddress: funder,
   });
 
   let creds;
@@ -79,8 +80,8 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
     chain,
     signer: walletClient,
     creds,
-    signatureType: SignatureTypeV2.POLY_PROXY,
-    funderAddress: depositWalletAddress as `0x${string}`,
+    signatureType: SignatureTypeV2.POLY_1271,
+    funderAddress: funder,
   });
   logger.info({ msg: 'ClobClient instance created with L2 auth' });
 
