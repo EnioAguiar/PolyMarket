@@ -34,13 +34,17 @@ export function getWalletAddress(): `0x${string}` {
 export async function createClobClient(config: Config): Promise<ClobClient> {
   const logger = getLogger();
   const privateKey = process.env.PRIVATE_KEY;
+  const depositWalletAddress = process.env.DEPOSIT_WALLET_ADDRESS;
   if (!privateKey) {
     throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
+  }
+  if (!depositWalletAddress) {
+    throw new Error('DEPOSIT_WALLET_ADDRESS environment variable is required for CLOB client');
   }
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
   walletAddress = account.address;
-  logger.info({ address: account.address }, 'Wallet account created');
+  logger.info({ address: account.address, depositWallet: depositWalletAddress }, 'Wallet account created');
 
   const walletClient = createWalletClient({
     account,
@@ -58,7 +62,7 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
     chain,
     signer: walletClient,
     signatureType: SignatureTypeV2.POLY_PROXY,
-    funderAddress: account.address,
+    funderAddress: depositWalletAddress as `0x${string}`,
   });
 
   let creds;
@@ -76,7 +80,7 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
     signer: walletClient,
     creds,
     signatureType: SignatureTypeV2.POLY_PROXY,
-    funderAddress: account.address,
+    funderAddress: depositWalletAddress as `0x${string}`,
   });
   logger.info({ msg: 'ClobClient instance created with L2 auth' });
 
