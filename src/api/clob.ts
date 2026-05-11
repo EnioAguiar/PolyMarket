@@ -34,17 +34,13 @@ export function getWalletAddress(): `0x${string}` {
 export async function createClobClient(config: Config): Promise<ClobClient> {
   const logger = getLogger();
   const privateKey = process.env.PRIVATE_KEY;
-  const depositWalletAddress = process.env.DEPOSIT_WALLET_ADDRESS;
   if (!privateKey) {
     throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
-  }
-  if (!depositWalletAddress) {
-    throw new Error('DEPOSIT_WALLET_ADDRESS environment variable is required for CLOB client');
   }
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
   walletAddress = account.address;
-  logger.info({ address: account.address, depositWallet: depositWalletAddress }, 'Wallet account created');
+  logger.info({ address: account.address }, 'Wallet account created (EOA mode)');
 
   const walletClient = createWalletClient({
     account,
@@ -56,13 +52,13 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const chain = config.polymarket.chainId;
   logger.info({ host, chain }, 'CLOB config');
 
-  const funder = depositWalletAddress as `0x${string}`;
+  const funder = account.address;
   logger.info({ msg: 'Creating temporary client to derive API credentials...' });
   const tempClient = new ClobClient({
     host,
     chain,
     signer: walletClient,
-    signatureType: SignatureTypeV2.POLY_1271,
+    signatureType: SignatureTypeV2.EOA,
     funderAddress: funder,
   });
 
@@ -80,7 +76,7 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
     chain,
     signer: walletClient,
     creds,
-    signatureType: SignatureTypeV2.POLY_1271,
+    signatureType: SignatureTypeV2.EOA,
     funderAddress: funder,
   });
   logger.info({ msg: 'ClobClient instance created with L2 auth' });
@@ -106,12 +102,7 @@ export async function getUSDCBalance(): Promise<number> {
   const logger = getLogger();
   try {
     const publicClient = createSharedPublicClient();
-
-    const depositWalletAddress = process.env.DEPOSIT_WALLET_ADDRESS;
-    if (!depositWalletAddress) {
-      logger.warn({ msg: 'DEPOSIT_WALLET_ADDRESS not set, using EOA address' });
-      return 0;
-    }
+    const walletAddr = getWalletAddress();
 
     const balance = await publicClient.readContract({
       address: PUSD_ADDRESS,
@@ -123,11 +114,11 @@ export async function getUSDCBalance(): Promise<number> {
         type: 'function',
       }],
       functionName: 'balanceOf',
-      args: [getAddress(depositWalletAddress)],
+      args: [getAddress(walletAddr)],
     });
 
     const pusdBalance = Number(balance) / 1e6;
-    logger.debug({ address: depositWalletAddress, balance: pusdBalance }, 'pUSD balance retrieved');
+    logger.debug({ address: walletAddr, balance: pusdBalance }, 'pUSD balance retrieved');
     return pusdBalance;
   } catch (error) {
     logger.error({ error }, 'Failed to get pUSD balance');
