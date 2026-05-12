@@ -1,139 +1,54 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-05-02
+## TypeScript Patterns
 
-## Naming Patterns
+- **ESM modules** — `"type": "module"` in package.json; all imports use `.js` extension (e.g., `import { foo } from './bar.js'`)
+- **Strict interfaces over types** — domain objects defined as `interface` in `src/types/index.ts`
+- **No `any` except forced** — `clobClient: any` in `src/index.ts:20` is an acknowledged exception due to untyped third-party SDK
+- **Discriminated unions avoided** — event types handled via `switch (event.event_type)` with explicit casts
+- **Module-level singletons** — shared state held as module-level `let` vars (e.g., `clobClient`, `walletAddress` in `src/api/clob.ts`; `logger` in `src/logging/index.ts`)
 
-**Files:**
-- CamelCase for TypeScript files: `position-sizing.ts`, `slippage.ts`, `arbitrage.ts`
-- Test files co-located in `tests/` directory: `*.test.ts`
-- Interface files colocated with implementation: `src/research/interface.ts`
+## Async / Error Handling
 
-**Functions:**
-- camelCase for functions: `calculatePositionSize`, `checkSlippage`, `checkArbitrage`
-- Verb-noun pattern: `calculateX`, `checkY`, `logZ`
+- **All async functions use `try/catch`** at call sites; errors are logged with context and execution continues (no unhandled rejections by design)
+- **`process.exit(1)`** used only at top-level startup failure
+- **Graceful shutdown** via SIGINT/SIGTERM handlers in `src/index.ts`
+- **No global unhandled rejection handler** — `.catch(console.error)` on main() entry
 
-**Variables:**
-- camelCase for variables and parameters
-- UPPER_SNAKE for constants: `POLYMARKET_MIN_TOKENS`, `FEE_THRESHOLD`
-- Descriptive names: `bankroll`, `researchQuality`, `maxSlippagePct`
+## Class Design
 
-**Types:**
-- PascalCase for interfaces: `PositionSizingInput`, `SlippageCheckResult`, `ArbitrageCheckResult`
-- `as const` for literal type assertions: `rating = 3 as const`
+- **Stateful modules as classes** — `SafetyModule`, `CycleManager`, `PolymarketWsClient`, `DailyLossTracker`, `DrawdownTracker`, `MarketMutex`, `EventRouter`, `SubscriptionManager`
+- **Factory functions** for instantiation — `createClobClient()`, `createCycleManager()`, `createPolymarketWsClient()`
+- **Private state, public interface** — internal state (`state`, `config`, `mutex`) marked `private`
 
-## Code Style
+## Naming Conventions
 
-**Formatting:**
-- Prettier not configured; code uses 2-space indentation
-- No semicolons at end of statements
-- Trailing commas in multi-line objects/arrays
-
-**Linting:**
-- ESLint with `@typescript-eslint` (v8)
-- Parser: `@typescript-eslint/parser`
-- Rule plugin: `@typescript-eslint/eslint-plugin`
-- Config extends `eslint.config.js` (flat config format)
-
-**TypeScript:**
-- `strict: true` in tsconfig.json
-- Explicit return types on exported functions
-- Interfaces preferred over type aliases for object shapes
-- Import types explicitly: `import type { PositionSizingInput } from './types.js'`
-
-**Module System:**
-- ESNext modules (`"type": "module"` in package.json)
-- Explicit `.js` extensions in imports: `from './types.js'`
-- `export function` for public APIs
-- No default exports observed
-
-## Import Organization
-
-**Order:**
-1. Built-in/Node modules: `import { spawn } from 'child_process'`
-2. External packages: `import pino from 'pino'`
-3. Internal types: `import type { Config } from '../types/index.js'`
-4. Internal modules: `import { SourceCategory } from '../types/source.js'`
-
-**Path aliases:**
-- None configured; relative paths used
-- Parent directory imports: `../src/...`
-
-## Error Handling
-
-**Patterns:**
-- Custom Error objects with descriptive messages
-- Errors include context: `new Error(\`twitter_scraper.py exited with code \${code}: \${stderr}\`)`
-- Errors propagated via Promise rejection
-- Timeout errors with clear messaging
-
-**Example from `src/research/twitter.ts`:**
-```typescript
-reject(new Error(`Failed to spawn twitter_scraper.py: ${err.message}`));
-```
-
-**Validation:**
-- Guard clauses for null/undefined: `if (!bestBid || !bestAsk)`
-- Early returns with fallback values
-- Clear reason strings in result objects
+- **camelCase** for variables, functions, class properties
+- **PascalCase** for classes and interfaces
+- **SCREAMING_SNAKE** for module-level constants (`POLYMARKET_WS_URL`, `HEARTBEAT_INTERVAL_MS`)
+- **Result types** follow pattern `*CheckResult`, `*CheckInput` (e.g., `SlippageCheckResult`, `SafetyCheckResult`)
+- **Boolean guards** named `is*` or `has*` (e.g., `isKillSwitchActive`, `hasLiquidity`, `isConnected`)
 
 ## Logging
 
-**Framework:** Pino v10
+- **pino** for structured JSON logging; `pino-pretty` in dev mode
+- Initialized once via `initLogger(config)`, accessed globally via `getLogger()`
+- Log entries use object context + message string: `logger.info({ key: value }, 'Human message')`
+- Dedicated helpers: `logBetDecision()`, `logSafetyCheck()` in `src/logging/index.ts`
+- Debug `console.log('[DEBUG] ...')` calls scattered in production code paths — not removed (see CONCERNS.md)
 
-**Patterns:**
-- Structured JSON logging via Pino
-- Helper functions for domain-specific logs: `logBetDecision()`, `logSafetyCheck()`
-- Log levels: `info`, `debug`, `warn`, `error`
-- Pretty printing in development via `pino-pretty`
+## Configuration
 
-**Example:**
-```typescript
-getLogger().info({ marketId, odds, positionSize }, `Bet decision: ${action}`);
-```
+- Runtime config loaded from `config.yaml` via `yaml` library — not from env vars
+- Secrets (private key, API tokens) from `.env` only
+- `config.dryRun: false` in committed config.yaml — live trading is the default
 
-## Comments
+## Module Organization
 
-**Documentation:**
-- JSDoc on class declarations: `/** TwitterAdapter - implements ResearchSource... */`
-- Implementation comments for decisions: `// D-04: Fixed 5% of bankroll per bet`
-- Decision tag format: `// D-04:`, `// D-09:`, `// D-15 to D-18:`
+- Each domain folder has an `index.ts` that exports the public API and re-exports from sub-modules
+- `src/types/` holds shared interfaces used across modules to avoid circular imports
+- `src/execution/index.ts` is a pure re-export barrel with no logic
 
-**When to Comment:**
-- Business rules (D-XX tags)
-- Non-obvious calculations
-- External system integration points
+## Code Comments
 
-## Function Design
-
-**Size:**
-- Small, focused functions
-- Single responsibility: `calculatePositionSize`, `checkSlippage`, `checkArbitrage`
-
-**Parameters:**
-- Typed input interfaces
-- Return typed result interfaces
-- Max 3-4 parameters; beyond that use input object
-
-**Return Values:**
-- Always return object with multiple values (not tuple)
-- Include `reason` field explaining the result
-
-## Module Design
-
-**Exports:**
-- Named exports only
-- Exported functions have explicit return types
-- Internal functions are private (no export)
-
-**Classes:**
-- Used for stateful adapters: `TwitterAdapter`, `RedditAdapter`
-- Implements interface pattern: `export class X implements ResearchSource`
-
-**Singleton Pattern:**
-- Logger uses module-level singleton: `let logger: pino.Logger`
-- Initialization function: `initLogger(config)`, `getLogger()`
-
----
-
-*Convention analysis: 2026-05-02*
+Comments are used sparingly. ADR/decision references appear as inline codes: `(BANK-01)`, `(D-09)`, `(D-10)` referencing design decisions documented elsewhere.

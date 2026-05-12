@@ -1,160 +1,64 @@
-# Testing Patterns
+# Testing
 
-**Analysis Date:** 2026-05-02
+## Framework
 
-## Test Framework
+**Vitest** (`^1.0.0`) — configured via `package.json` script `"test": "vitest"`. No separate vitest config file found.
 
-**Runner:**
-- Vitest v1.0.0
-- Config: `vitest.config.ts` not found (uses defaults)
+Run tests: `npm test`
 
-**Assertion Library:**
-- Vitest built-in `expect`
+## Test Files
 
-**Run Commands:**
-```bash
-npm test               # Run all tests
-npm run dev            # Development with ts-node
-npm run build          # Compile TypeScript
-npm run lint           # Run ESLint
-```
-
-## Test File Organization
-
-**Location:**
-- `tests/` directory at project root (co-located, not in src/)
-- Separate from source files
-
-**Naming:**
-- `*.test.ts` suffix
-- Mirror source structure where practical: `tests/arbitrage.test.ts`, `tests/position-sizing.test.ts`
-
-**Structure:**
 ```
 tests/
-├── arbitrage.test.ts
-├── position-sizing.test.ts
-├── research/
-│   └── social.test.ts
-└── slippage.test.ts
+├── arbitrage.test.ts       # 3 tests — checkArbitrage(), calculateArbitrageProfit()
+├── slippage.test.ts        # 4 tests — checkSlippage() boundary conditions
+├── position-sizing.test.ts # Position size / bankroll sizing tests
+└── research/
+    └── social.test.ts      # Social research source tests
 ```
 
-## Test Structure
+All test files use `describe` / `it` / `expect` from `vitest`.
 
-**Suite Organization:**
-```typescript
-import { describe, it, expect } from 'vitest';
+## What Is Tested
 
-describe('arbitrage', () => {
-  it('should detect arbitrage when YES + NO < 0.99', () => {
-    const orderbook = { ... };
-    const result = checkArbitrage(orderbook);
-    expect(result.isArbitrage).toBe(true);
-  });
-});
-```
+| Module | Coverage |
+|--------|----------|
+| `src/execution/arbitrage.ts` | YES — happy path, non-arbitrage case, profit calc |
+| `src/execution/slippage.ts` | YES — 5% allowed, 10% boundary, >10% rejected, price improvement |
+| `src/bankroll/position-sizing.ts` | YES (position-sizing.test.ts) |
+| `src/research/` social sources | YES (social.test.ts) |
 
-**Patterns:**
-- `describe()` blocks group related tests by function/module
-- `it()` or `test()` for individual test cases
-- Clear test descriptions: "should detect X when Y"
-- Arrange-Act-Assert pattern
+## What Is NOT Tested
 
-## Mocking
+| Module | Notes |
+|--------|-------|
+| `src/safety/` | No tests for `SafetyModule`, `DailyLossTracker`, `DrawdownTracker`, position-limits |
+| `src/betting/cycle.ts` | `CycleManager` state machine untested |
+| `src/betting/mutex.ts` | `MarketMutex` untested |
+| `src/websocket/` | No WS integration tests |
+| `src/api/clob.ts` | No tests — requires live CLOB credentials |
+| `src/api/telegram.ts` | No tests |
+| `src/index.ts` / `src/main.ts` | No integration or end-to-end tests |
+| `src/execution/limit-orders.ts` | Untested |
 
-**Framework:** Vitest built-in `vi`
+## Test Patterns
 
-**Pattern:**
-```typescript
-import { vi } from 'vitest';
-
-vi.mock('child_process', () => ({
-  spawn: vi.fn()
-}));
-```
-
-**Usage in `tests/research/social.test.ts`:**
-- Mock Node.js `child_process` module
-- Use `vi.fn()` for function mocks
-- Reset in `beforeEach` when needed
-
-## Fixtures and Factories
-
-**Test Data:**
-- Inline object literals for test data
-- Constants defined in test body for readability
-
-**Example from `tests/arbitrage.test.ts`:**
-```typescript
-const orderbook = {
-  bids: [{ price: 0.45, size: 100 }],
-  asks: [{ price: 0.50, size: 100 }],
-};
-```
-
-**Environment Variables:**
-- Tests modify `process.env` directly
-- Cleanup with `delete process.env.VAR_NAME`
-
-**Example from `tests/research/social.test.ts`:**
-```typescript
-it('isAvailable returns true when TWITTER_BEARER_TOKEN is set', () => {
-  process.env.TWITTER_BEARER_TOKEN = 'test-token';
-  const result = adapter.isAvailable();
-  expect(result).toBe(true);
-  delete process.env.TWITTER_BEARER_TOKEN;
-});
-```
+- Tests import directly from `src/` via relative paths with `.js` extension
+- Pure unit tests — no mocking, no DB, no network calls
+- Tests focus on pure computation functions (arbitrage math, slippage percentage)
+- No test fixtures or factories
 
 ## Coverage
 
-**Requirements:** None enforced
+No coverage configuration found (`c8`, `istanbul` not configured). Coverage not enforced in CI.
 
-**View Coverage:** Not configured
+## CI
 
-## Test Types
+No `.github/workflows/` or CI config found. Tests not automatically run on push.
 
-**Unit Tests:**
-- Pure functions tested in isolation: `calculatePositionSize`, `checkSlippage`, `checkArbitrage`
-- No external dependencies mocked where possible
-- Example: `tests/arbitrage.test.ts`, `tests/slippage.test.ts`
+## Gaps and Risks
 
-**Integration Tests:**
-- Adapters tested with mocked dependencies: `tests/research/social.test.ts`
-- Tests verify class instances and their behavior
-
-**E2E Tests:** Not used
-
-## Common Patterns
-
-**Async Testing:** Not observed in current tests
-
-**Error Testing:**
-- Tests pass when functions handle errors gracefully
-- Example: `expect(true).toBe(true)` for void operations
-
-**Boundary Testing:**
-- Explicit tests at boundaries: "should allow exactly 10% slippage (boundary)"
-- `toBeCloseTo()` for floating point comparison
-
-## Test Organization Conventions
-
-**Descriptive Names:**
-- `describe('arbitrage')` - groups by function
-- `describe('position-sizing')` - groups by module
-- `describe('TwitterAdapter')` - groups by class
-
-**Assertion Patterns:**
-- `expect(result.isArbitrage).toBe(true)`
-- `expect(result.positionSize).toBeCloseTo(50)`
-- `expect(result.allowed).toBe(false)`
-- `expect(result.slippagePct).toBeCloseTo(0.05)`
-
-**Test Independence:**
-- Each test sets up its own data
-- No shared mutable state between tests
-- Environment variables cleaned up after each test
-
----
-
-*Testing analysis: 2026-05-02*
+- Core safety logic (`SafetyModule`, kill-switch, daily-loss) has zero test coverage — highest risk given financial consequences
+- `CycleManager` state machine (open → closed → waiting_24h) has zero test coverage
+- No integration tests against Polymarket staging/sandbox environment
+- `config.dryRun: false` is committed — no safeguard preventing accidental live execution in tests

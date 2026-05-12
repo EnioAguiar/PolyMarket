@@ -1,136 +1,183 @@
 # External Integrations
 
-**Analysis Date:** 2026-05-02
+**Analysis Date:** 2026-05-12
 
-## APIs & External Services
+## Polymarket Platform
 
-**Prediction Markets:**
-- **Polymarket CLOB** - Primary trading venue
-  - SDK: `@polymarket/clob-client-v2` (npm)
-  - Auth: Ed25519 signature via `ethers` v5 wallet
-  - Endpoints: `https://clob.polymarket.com` (CLOB), `https://gamma-api.polymarket.com` (Gamma)
-  - Chain: Polygon (chainId 137)
-  - Env vars: `PRIVATE_KEY`, `FUNDER_ADDRESS`
+**Gamma REST API (Market Data):**
+- Base URL: `https://gamma-api.polymarket.com`
+- Endpoint used: `GET /markets` with query params `active`, `closed`, `limit`, `end_date_min`, `end_date_max`
+- Auth: None (public API)
+- Client: Native `fetch` in `src/api/polymarket.ts`
+- Purpose: Fetch active prediction markets and their CLOB token IDs
 
-**AI/LLM:**
-- **MiniMax API** - AI estimation for probability assessment
-  - Model: MiniMax-M2.7
-  - Endpoint: `https://api.minimax.io/anthropic/v1/messages`
-  - Auth: Bearer token (`MINIMAX_API_KEY`)
-  - Used in: `src/ai/minimax.ts`
+**CLOB REST API (Order Execution):**
+- Host: configured via `config.yaml` → `polymarket.host` (typically `https://clob.polymarket.com`)
+- Auth: L2 ECDSA signature derived from EOA private key via `ClobClient.createOrDeriveApiKey()`
+- SDK: `@polymarket/clob-client-v2` 1.0.3-canary.0 used in `src/api/clob.ts`
+- Operations: `getOrderBook()`, `createAndPostMarketOrder()` (FOK), `createAndPostOrder()` (GTC limit), `updateBalanceAllowance()`
+- Auth env var: `PRIVATE_KEY`
 
-**News & Research:**
-- **NewsData.io** - Real-time news aggregation
-  - Endpoint: `https://newsdata.io/api/1/news`
-  - Auth: API key (`NEWSDATA_API_KEY`)
-  - Free tier: 500 requests/day
-  - Used in: `src/research/newsdata.ts`
+**CLOB WebSocket Feed (Real-time Events):**
+- URL: `wss://ws-subscriptions-clob.polymarket.com/ws/market`
+- Auth: None (public feed)
+- Client: `ws` library in `src/websocket/client.ts`
+- Events consumed: `new_market`, `best_bid_ask`, `market_resolved`, `price_change`, `book`
+- Heartbeat: PING/PONG every 10 seconds
+- Reconnect: Exponential backoff, max 10 attempts, max delay 30s
 
-**Crypto Markets:**
-- **Binance WebSocket** - Real-time price data
-  - Endpoint: `wss://stream.binance.com:9443/ws`
-  - Auth: None (public WebSocket)
-  - Used in: `src/research/binance.ts`
+## Blockchain (Polygon)
 
-**Social Media (via Python scripts):**
-- **Twitter/X API** - Social sentiment
-  - SDK: Tweepy (Python)
-  - Script: `scripts/twitter_scraper.py`
-  - Auth: Bearer token (`TWITTER_BEARER_TOKEN`)
-  - Spawned as subprocess from `src/research/twitter.ts`
+**Polygon RPC:**
+- Default URL: `https://polygon.llamarpc.com`
+- Override env var: `POLYGON_RPC_URL`
+- Client: `viem` `createPublicClient` in `src/api/http.ts`
+- Purpose: Read USDC balance via `balanceOf()` on-chain call
+- Chain: Polygon Mainnet (chain ID from `config.yaml` → `polymarket.chainId`)
 
-- **Reddit API** - Community discussion
-  - SDK: PRAW (Python)
-  - Script: `scripts/reddit_scraper.py`
-  - Auth: Client ID + Secret (`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`)
-  - Spawned as subprocess from `src/research/reddit.ts`
+**USDC Contract (Polygon):**
+- Contract address: `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` (USDC / bridged USDC on Polygon)
+- ABI: minimal `balanceOf(address)` — hardcoded in `src/api/clob.ts`
+- Purpose: Determine bankroll (real wallet balance)
 
-**Web Scraping:**
-- **Crawl4AI** - LLM-friendly web scraping
-  - Script: `scripts/crawl4ai_web.py`
-  - Auth: None (public sites)
-  - Spawned as subprocess from `src/research/crawl4ai.ts`
+**Wallet Signing:**
+- Method: EOA private key (`PRIVATE_KEY` env var)
+- Library: `viem` `privateKeyToAccount` + `createWalletClient`
+- Signature type: `SignatureTypeV2.EOA` (passed to CLOB client)
+- Deposit wallet: `DEPOSIT_WALLET_ADDRESS` env var (referenced in `.env.example`, not seen actively used in current code)
+
+## AI / LLM
+
+**MiniMax AI API:**
+- Base URL: `https://api.minimax.io/anthropic/v1/messages`
+- Model: `MiniMax-M2.7`
+- Auth: Bearer token via `MINIMAX_API_KEY` env var
+- Client: Native `fetch` in `src/ai/minimax.ts`
+- Purpose: Generate probability estimates for prediction markets given aggregated research signals
+- Request format: Anthropic-compatible messages API (JSON body with `model`, `max_tokens`, `messages`)
+
+## Research Data Sources
+
+**Google Custom Search API:**
+- URL: `https://www.googleapis.com/customsearch/v1`
+- Auth: `GOOGLE_API_KEY` + `GOOGLE_SEARCH_ENGINE_ID` env vars
+- Client: Native `fetch` in `src/research/google.ts`
+- Purpose: News and web search signals for market research
+
+**NewsData.io:**
+- URL: `https://newsdata.io/api/1/news`
+- Auth: `NEWSDATA_API_KEY` env var (query param `apikey`)
+- Client: Native `fetch` in `src/research/newsdata.ts`
+- Purpose: Real-time news articles; free tier 500 requests/day
+
+**CoinGecko API:**
+- Base URL: `https://api.coingecko.com/api/v3`
+- Auth: Optional `COINGECKO_API_KEY` env var (query param `x_cg_demo_api_key`); works unauthenticated at lower rate limits
+- Client: Native `fetch` in `src/research/sources/coingecko.ts`
+- Purpose: Crypto price, market cap, volume, and community data
+
+**Binance WebSocket:**
+- URL: `wss://stream.binance.com:9443/ws/{symbol}@ticker`
+- Auth: None (public stream)
+- Client: `ws` library in `src/research/binance.ts`
+- Purpose: Real-time crypto ticker data for crypto-related markets
+
+**API-Football (via RapidAPI):**
+- Base URL: `https://api-football-v1.p.rapidapi.com`
+- Auth: `RAPIDAPI_KEY` env var (header `X-RapidAPI-Key`); optional `RAPIDAPI_HOST` override
+- Client: Native `fetch` in `src/research/sources/football.ts`
+- Purpose: Upcoming football fixture data for sports market research
+
+**Twitter/X API v2:**
+- Auth: `TWITTER_BEARER_TOKEN` env var
+- Client: Python subprocess via `tweepy` library — `scripts/twitter_scraper.py`
+- Node bridge: `src/research/twitter.ts` spawns `python3 scripts/twitter_scraper.py`
+- Purpose: Social sentiment signals for breaking news markets
+- Cache: In-memory, 5-minute TTL
+
+**Reddit API (PRAW):**
+- Auth: `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` env vars
+- Client: Python subprocess via `praw` library — `scripts/reddit_scraper.py`
+- Node bridge: `src/research/reddit.ts` spawns `python3 scripts/reddit_scraper.py`
+- Purpose: Community sentiment signals, higher signal-to-noise than Twitter
+- Cache: In-memory, 5-minute TTL
+
+**Crawl4AI Web Scraper:**
+- No external API — scrapes public web pages
+- Client: Python subprocess via `crawl4ai` library — `scripts/crawl4ai_web.py`
+- Node bridge: `src/research/crawl4ai.ts` spawns `python3 scripts/crawl4ai_web.py`
+- Target URLs: Dynamically mapped from topic keywords (CoinTelegraph, ESPN, Reuters, TechCrunch, HackerNews)
+- No auth required
+
+**Crawl4AI Search:**
+- No external API — performs web crawl-based search
+- Client: Python subprocess — `scripts/crawl4ai_search.py`
+- Node bridge: `src/research/crawl4ai_search.ts` spawns `python3 scripts/crawl4ai_search.py`
+- No auth required
+
+## Messaging / Notifications
+
+**Telegram Bot API:**
+- Auth: `TELEGRAM_BOT_TOKEN` env var
+- Target chat: `TELEGRAM_CHAT_ID` env var (for push notifications)
+- SDK: `telegraf` 4.16.3 in `src/api/telegram.ts`
+- Purpose: Bot control interface (pause/resume, status, balance queries) and push alerts (bet placed, errors, status updates)
+- Commands: `/status`, `/cycle`, `/pause`, `/resume`, `/bankroll`, `/testmode`, `/balance`
 
 ## Data Storage
 
-**Database:**
-- **SQLite** - Local file-based database
-  - Driver: `better-sqlite3`
-  - ORM: `drizzle-orm`
-  - Schema: `src/db/schema.ts`
-  - Tables: `source_ratings`, `source_feeds`, `research_results`
-  - Location: SQLite file (path not specified in code)
+**SQLite (local):**
+- Path: `$DB_PATH` env var, default `/data/polymarket.db`
+- Client: `better-sqlite3` 12.9.0 + `drizzle-orm` 0.45.2
+- Schema: `src/db/schema.ts` — tables: `source_ratings`, `source_feeds`, `research_results`
+- On Railway: persisted on mounted volume at `/data`
 
-**Note:** SQLite is local filesystem storage. On Railway, data persists in container unless using Railway's PostgreSQL template.
+**File Storage:**
+- Local filesystem only; no cloud object storage
 
-## Authentication & Identity
-
-**Wallet (Polymarket):**
-- **Ethereum Wallet** - Ed25519 key for signing orders
-  - Library: `ethers` v5
-  - Env vars: `PRIVATE_KEY`, `FUNDER_ADDRESS`
-  - Signature type: EOA (not contract)
-
-## Monitoring & Observability
-
-**Logging:**
-- Framework: `pino` v10 (structured JSON)
-- Pretty printing in dev (`pino-pretty`)
-- Config in `config.yaml`: `logging.level: debug`, `logging.pretty: true`
-
-**Health Check:**
-- Railway health endpoint: `/health`
-- Configured in `railway.json`
+**Caching:**
+- No Redis or external cache; Twitter and Reddit adapters use in-memory `Map` with 5-minute TTL
 
 ## CI/CD & Deployment
 
 **Hosting:**
-- **Railway** - Deployment platform
-  - Config: `railway.json`
-  - Cron jobs via Railway scheduler (minimum 5-minute interval)
-  - Service must EXIT when complete ( Railway skips if previous still running)
+- Railway.app — configured via `railway.json` and `railpack.json`
+- Single replica, restart on failure (max 10 retries)
+- Volume mount: `/data` (persistent SQLite)
 
-**Deployment Flow:**
-1. Build: `npm run build` → `tsc` compiles to `dist/`
-2. Start: `node dist/index.js` or `npm start`
-3. Dev: `npm run dev` → `ts-node/esm src/index.ts`
+**Build Process:**
+- Railpack builds Node.js provider: `npm ci` → `npm run build` (tsc)
+- Start command: `python3 -m ensurepip --upgrade && python3 -m pip install -r requirements.txt && npm start`
+- Python 3.13 provisioned alongside Node.js
 
-## Environment Configuration
+**Health Check:**
+- Endpoint: `GET /health` — returns JSON with `status`, `wsConnected`, cycle stats
+- Debug endpoint: `GET /debug` — returns safety state, cycle stats, mutex info
+- Interval: 30s, timeout: 5s, startup grace: 30s
 
-**Required env vars:**
-| Variable | Purpose |
-|----------|---------|
-| `PRIVATE_KEY` | Ethereum wallet for Polymarket signatures |
-| `FUNDER_ADDRESS` | Wallet address for funding |
-| `MINIMAX_API_KEY` | MiniMax AI inference |
-| `NEWSDATA_API_KEY` | NewsData.io API |
-| `TWITTER_BEARER_TOKEN` | Twitter API authentication |
-| `REDDIT_CLIENT_ID` | Reddit API client ID |
-| `REDDIT_CLIENT_SECRET` | Reddit API client secret |
+## Environment Variables Summary
 
-**Secrets location:**
-- `.env` file (gitignored)
-- `.env.example` template committed
-
-## Webhooks & Callbacks
-
-**Outgoing:**
-- None detected - Bot is pull-based (researches then acts)
-
-**Incoming:**
-- Railway health check: `GET /health`
-
-## Research Source Architecture
-
-| Source | Type | Rating | Subprocess | Env Vars |
-|--------|------|--------|------------|----------|
-| NewsData.io | REST API | ★★★ | No | `NEWSDATA_API_KEY` |
-| Twitter/X | REST API | ★★★ | Yes (tweepy) | `TWITTER_BEARER_TOKEN` |
-| Reddit | REST API | ★★★★ | Yes (praw) | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` |
-| Binance | WebSocket | ★★★★ | No | None |
-| Crawl4AI | Scraper | ★★★ | Yes (crawl4ai) | None |
-| Google | Search | Not implemented | - | - |
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `PRIVATE_KEY` | Yes (live mode) | EOA wallet private key for Polymarket signing |
+| `MINIMAX_API_KEY` | Yes | MiniMax LLM API authentication |
+| `TELEGRAM_BOT_TOKEN` | Optional | Enables Telegram bot interface |
+| `TELEGRAM_CHAT_ID` | Optional | Target chat for push notifications |
+| `POLYGON_RPC_URL` | Optional | Override default Polygon RPC (default: `https://polygon.llamarpc.com`) |
+| `NEWSDATA_API_KEY` | Optional | NewsData.io news feed |
+| `TWITTER_BEARER_TOKEN` | Optional | Twitter/X API v2 access |
+| `REDDIT_CLIENT_ID` | Optional | Reddit API OAuth client ID |
+| `REDDIT_CLIENT_SECRET` | Optional | Reddit API OAuth client secret |
+| `GOOGLE_API_KEY` | Optional | Google Custom Search API |
+| `GOOGLE_SEARCH_ENGINE_ID` | Optional | Google Custom Search engine ID |
+| `COINGECKO_API_KEY` | Optional | CoinGecko Demo API key (unauthenticated works too) |
+| `RAPIDAPI_KEY` | Optional | RapidAPI key for API-Football |
+| `RAPIDAPI_HOST` | Optional | RapidAPI host override for API-Football |
+| `DEPOSIT_WALLET_ADDRESS` | Optional | Polymarket deposit wallet address |
+| `TEST_EXECUTION` | Optional | Set to `"true"` to prevent real order execution |
+| `DB_PATH` | Optional | SQLite database path (default: `/data/polymarket.db`) |
+| `PORT` | Optional | HTTP health check server port (default: `3000`) |
 
 ---
 
-*Integration audit: 2026-05-02*
+*Integration audit: 2026-05-12*

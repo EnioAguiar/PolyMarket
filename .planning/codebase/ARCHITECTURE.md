@@ -1,222 +1,95 @@
 # Architecture
 
-**Analysis Date:** 2026-05-02
+## Overview
 
-## System Overview
+Event-driven autonomous betting bot for Polymarket prediction markets. Runs as a long-lived Node.js service that connects to Polymarket's WebSocket feed, evaluates new markets in real-time, passes bets through a safety pipeline, and executes orders via the CLOB (Central Limit Order Book) API on Polygon.
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Entry Points                                  │
-│   `src/index.ts` (Event-driven WebSocket)  │  `src/main.ts` (Cron) │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     Core Orchestration                               │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐  │
-│  │  SafetyModule│  │ CycleManager│  │ BankrollModule│ │ResearchAgg│  │
-│  │ `safety/`   │  │ `betting/`  │  │ `bankroll/`  │  │`research/`│  │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘  │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-         ┌───────────────────┼───────────────────┐
-         ▼                   ▼                   ▼
-┌────────────────┐ ┌────────────────┐ ┌────────────────────────────┐
-│   API Layer    │ │  AI Layer      │ │     Execution Layer        │
-│  `api/`        │ │  `ai/`         │ │  `execution/`              │
-│  - polymarket  │ │  - MiniMaxAI   │ │  - limit-orders            │
-│  - clob        │ │  - AIValidator │ │  - slippage                │
-│                │ │  - AIChain     │ │  - arbitrage               │
-└────────────────┘ └────────────────┘ └────────────────────────────┘
-         │                   │                   │
-         └───────────────────┼───────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    Infrastructure                                     │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌────────────┐ │
-│  │  WebSocket  │  │    DB       │  │   Logging   │  │   Config   │ │
-│  │ `websocket/`│  │ `db/`       │  │ `logging/`  │  │ `config/`  │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └────────────┘ │
-└─────────────────────────────────────────────────────────────────────┘
+## Execution Modes
+
+Two overlapping execution paths exist:
+
+**Primary (event-driven):** `src/index.ts` — entry point for production. Connects to WebSocket, listens for `new_market` events, routes each through safety checks, and calls `placeMarketOrder` if live.
+
+**Legacy (polling):** `src/main.ts` — batch-style loop that calls Gamma REST API to fetch markets, iterates, evaluates each. Still importable but not the primary entry point.
+
+## Data Flow (Event-Driven)
+
+```
+Polymarket WebSocket (wss://ws-subscriptions-clob.polymarket.com/ws/market)
+    │ WsEvent (new_market, best_bid_ask, market_resolved, price_change, book)
+    ▼
+PolymarketWsClient (src/websocket/client.ts)
+    │ parsed JSON, heartbeat PING/PONG, exponential backoff reconnect
+    ▼
+EventRouter (src/websocket/events.ts)
+    │ dispatches by event_type
+    ▼
+handleWsEvent (src/index.ts)
+    │ checks CycleManager.canAcceptBet() + acquireMarket()
+    ▼
+evaluateMarketForWebSocket (src/websocket/integration.ts)
+    │ fetches orderbook via CLOB API
+    │ checks liquidity + mid-price
+    ▼
+SafetyModule.checkBet() (src/safety/index.ts)
+    │ position size limit (BANK-01)
+    │ daily loss limit (BANK-02)
+    │ drawdown kill switch (BANK-03)
+    ▼
+checkSlippage() (src/execution/slippage.ts)
+    │ 10% max slippage tolerance
+    ▼
+placeMarketOrder() / placeLimitOrder() (src/api/clob.ts)
+    │ FOK market order via @polymarket/clob-client-v2
+    ▼
+notifyBetPlaced() (src/api/telegram.ts)
 ```
 
-## Component Responsibilities
+## Module Boundaries
 
-| Component | Responsibility | File |
-|-----------|----------------|------|
-| **PolymarketWsClient** | WebSocket connection management, reconnection logic | `src/websocket/client.ts` |
-| **EventRouter** | Event dispatch to handlers | `src/websocket/events.ts` |
-| **SafetyModule** | Kill switch, position limits, drawdown/daily loss tracking | `src/safety/index.ts` |
-| **CycleManager** | Betting cycle state, market mutex, 24h cooldown | `src/betting/cycle.ts` |
-| **BankrollModule** | Position sizing, exposure caps | `src/bankroll/index.ts` |
-| **ResearchAggregator** | Parallel source fetching, signal aggregation | `src/research/aggregator.ts` |
-| **BayesianScorer** | Weighted confidence scoring | `src/research/confidence.ts` |
-| **AIChain** | Orchestrates AI estimate generation | `src/ai/chain.ts` |
-| **MiniMaxAI** | LLM inference for probability estimates | `src/ai/minimax.ts` |
-| **ClobClient** | Order book fetching, order placement | `src/api/clob.ts` |
-| **Gamma API** | Market discovery, filtering | `src/api/polymarket.ts` |
-
-## Pattern Overview
-
-**Overall:** Event-driven with polling fallback for cron-based execution
-
-**Key Characteristics:**
-- WebSocket-driven real-time market event handling
-- Research-first approach with 10-source minimum before bet decisions
-- Safety gates at multiple layers (safety module + execution checks)
-- Bayesian confidence scoring weighted by source rating
-- Cycle-based betting with mutex to prevent duplicate processing
-
-## Layers
-
-**Entry Layer:**
-- Location: `src/index.ts`, `src/main.ts`
-- Contains: HTTP health server, WebSocket client initialization, bot cycle logic
-- Depends on: All other modules
-- Used by: Railway cron, direct node execution
-
-**Orchestration Layer:**
-- Location: `src/safety/`, `src/betting/`, `src/bankroll/`, `src/research/`
-- Contains: Business logic coordination, state management
-- Depends on: API layer, types
-- Used by: Entry layer
-
-**API Layer:**
-- Location: `src/api/`
-- Contains: Polymarket Gamma API client, CLOB client, orderbook utilities
-- Depends on: External APIs (Polymarket, CLOB)
-- Used by: Orchestration layer
-
-**AI Layer:**
-- Location: `src/ai/`
-- Contains: MiniMax inference, chain-of-thought, validation
-- Depends on: Research signals, API layer
-- Used by: Research aggregator output processing
-
-**Execution Layer:**
-- Location: `src/execution/`
-- Contains: Order placement, slippage calculation, arbitrage detection
-- Depends on: ClobClient, config
-- Used by: Entry layer (when not dry-run)
-
-**Infrastructure Layer:**
-- Location: `src/websocket/`, `src/db/`, `src/logging/`, `src/config/`
-- Contains: WebSocket handling, SQLite/Drizzle persistence, Pino logging, YAML config
-- Depends on: Node.js built-ins
-- Used by: All layers
-
-## Data Flow
-
-### Primary Request Path (Event-Driven Mode)
-
-1. **WS Connection** (`src/websocket/client.ts:27`) - Connect to Polymarket WebSocket
-2. **Event Routing** (`src/websocket/events.ts`) - Route events by type
-3. **Market Acquisition** (`src/betting/mutex.ts`) - Acquire market lock via CycleManager
-4. **Safety Check** (`src/safety/index.ts:33`) - Validate bet passes safety gates
-5. **Market Evaluation** (`src/websocket/integration.ts`) - Evaluate market for opportunity
-6. **Research** (`src/research/aggregator.ts:11`) - Fetch from 10+ sources in parallel
-7. **Confidence Scoring** (`src/research/confidence.ts:89`) - Bayesian weighted scoring
-8. **AI Estimation** (`src/ai/chain.ts:16`) - Generate probability estimate
-9. **Execution** (`src/execution/limit-orders.ts`) - Place order if conditions met
-
-### Secondary Flow (Cron Polling Mode)
-
-1. **Market Fetch** (`src/api/polymarket.ts:5`) - Poll Gamma API for markets
-2. **Date Filter** (`src/main.ts:35-43`) - Filter by 5min-24h timeframe
-3. **Market Loop** (`src/main.ts:63`) - Iterate filtered markets
-4. **Orderbook Fetch** (`src/api/clob.ts:40`) - Get bid/ask for YES token
-5. **Liquidity Check** (`src/api/clob.ts:79`) - Verify sufficient liquidity
-6. **Safety Check** (`src/safety/index.ts:33`) - Position size validation
-7. **Log Decision** (`src/logging/index.ts:38`) - Record bet decision (monitor-only phase)
-
-**State Management:**
-- SafetyModule: Tracks dailyLoss, totalDrawdown, killSwitch state
-- CycleManager: Tracks bet status, cycle open/closed/waiting_24h
-- BankrollModule: Tracks availableBankroll, openPositions, dailyPnL
-- MarketMutex: Per-market lock to prevent duplicate processing
+| Module | Responsibility |
+|--------|---------------|
+| `src/websocket/` | WS connection lifecycle, event parsing, subscription management |
+| `src/api/clob.ts` | CLOB client init, order execution, orderbook queries, USDC balance |
+| `src/api/polymarket.ts` | Gamma REST API — market listing/filtering |
+| `src/api/http.ts` | Shared viem PublicClient for Polygon RPC calls |
+| `src/api/telegram.ts` | Telegram bot for notifications + remote pause/control |
+| `src/safety/` | Three-layer safety guard: position size, daily loss, drawdown kill switch |
+| `src/betting/` | CycleManager (max 3 bets/cycle, 24h wait), MarketMutex (dedup) |
+| `src/execution/` | Slippage check, arbitrage detection, re-exports CLOB order functions |
+| `src/config/` | YAML config loader (`config.yaml`) |
+| `src/logging/` | pino-based structured logger + `logBetDecision` helper |
+| `src/db/` | SQLite via drizzle-orm — source ratings, feeds, research results |
+| `src/research/` | Multi-source market research (news, social, crypto, AI) — partially wired |
+| `src/ai/` | MiniMax AI chain for probability estimation — partially wired |
+| `src/bankroll/` | Bankroll sizing and exposure cap utilities |
+| `src/types/` | Shared TypeScript interfaces |
 
 ## Key Abstractions
 
-**ResearchSource Interface:**
-- Purpose: Uniform interface for all research sources
-- Examples: `src/research/google.ts`, `src/research/binance.ts`, `src/research/twitter.ts`, `src/research/reddit.ts`
-- Pattern: Promise-based fetch with confidence and recency scoring
+- **SafetyModule** — stateful class; instantiated once at startup with bankroll, wraps three trackers (DailyLossTracker, DrawdownTracker, position-limits). Single `checkBet()` entry point.
+- **CycleManager** — stateful class; enforces max 3 bets per cycle, transitions through `open → closed → waiting_24h → open` states. Uses MarketMutex to prevent duplicate market processing.
+- **EventRouter** — simple `Map<event_type, handler>` pub/sub. Handlers registered in `src/index.ts`.
+- **PolymarketWsClient** — wraps `ws` library with heartbeat, exponential backoff reconnect (max 10 attempts, cap 30s), subscription management.
 
-**SafetyModule:**
-- Purpose: Centralized safety coordination
-- Examples: Used in `src/index.ts:86`, `src/main.ts:25`
-- Pattern: Composite checks (position, daily loss, drawdown)
+## Blockchain Interaction
 
-**CycleManager:**
-- Purpose: Betting cycle state machine
-- Examples: `src/index.ts:130`, `src/betting/cycle.ts`
-- Pattern: State transitions (open → closed → waiting_24h → open)
+- Chain: **Polygon mainnet** (chainId 137)
+- Token: **USDC** (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`)
+- Auth: **EOA signature** (`SignatureTypeV2.EOA`) — private key derived to viem account
+- Order types: **FOK** (fill-or-kill market orders), **GTC** (good-till-cancelled limit orders)
+- RPC: configurable via `POLYGON_RPC_URL` env var, defaults to `https://polygon.llamarpc.com`
 
-**BayesianScorer:**
-- Purpose: Confidence calculation from heterogeneous sources
-- Examples: `src/research/confidence.ts:89`
-- Pattern: Weighted evidence aggregation with prior update
+## HTTP Health Server
 
-## Entry Points
+`src/index.ts` starts an HTTP server on `PORT` (default 3000) with:
+- `GET /health` — service status, WS connection state, cycle stats
+- `GET /debug` — detailed safety state, cycle stats, mutex lock count
 
-**Event-Driven (WebSocket):**
-- Location: `src/index.ts`
-- Triggers: Polymarket WebSocket events (new_market, best_bid_ask, market_resolved)
-- Responsibilities: WS connection, event routing, health server, graceful shutdown
+## Partially Implemented Subsystems
 
-**Cron Polling:**
-- Location: `src/main.ts`
-- Triggers: Railway cron (every 5+ minutes)
-- Responsibilities: Market fetching, filtering, evaluation loop, bet decision logging
-
-**Health Check:**
-- Location: `src/index.ts:23`
-- Endpoint: GET /health
-- Returns: WS connection status, cycle stats
-
-## Architectural Constraints
-
-- **Threading:** Single-threaded Node.js event loop; WebSocket uses async/await
-- **Global state:** Module-level singletons for logger (`src/logging/index.ts:4`), clobClient (`src/api/clob.ts:5`), db (`src/db/index.ts:8`)
-- **Circular imports:** None detected
-- **Cron limitation:** Railway minimum 5-minute interval; cycle manager handles state across runs
-
-## Anti-Patterns
-
-### Console.log for Debug
-
-**What happens:** Debug output uses `console.log` directly in `src/api/polymarket.ts` and `src/main.ts`
-**Why it's wrong:** Inconsistent with Pino logging throughout rest of codebase
-**Do this instead:** Use `getLogger().debug()` or `getLogger().info()` with structured data
-
-### Hardcoded Bankroll Value
-
-**What happens:** `src/main.ts:150` sets `const bankroll = 1000` directly
-**Why it's wrong:** Should use configured initial bankroll or state from SafetyModule
-**Do this instead:** Pass bankroll from config or maintain consistent state across modules
-
-### SafetyModule Instantiation Per Cycle
-
-**What happens:** `src/main.ts:25` creates new SafetyModule each cycle
-**Why it's wrong:** Loses track of cumulative state (dailyLoss, drawdown) across cycles
-**Do this instead:** Maintain single SafetyModule instance across bot lifecycle
-
-## Error Handling
-
-**Strategy:** Graceful degradation with structured logging
-
-**Patterns:**
-- WebSocket reconnection with exponential backoff (`src/websocket/client.ts:134-156`)
-- Safety checks return result objects, never throw (`src/safety/index.ts:33`)
-- Research sources use Promise.allSettled for partial failures (`src/research/aggregator.ts:20`)
-- Dry-run mode bypasses execution but logs all decisions
-
-## Cross-Cutting Concerns
-
-**Logging:** Pino with structured JSON, pino-pretty for dev (`src/logging/index.ts`)
-**Validation:** AI estimates validated against current odds and signal count (`src/ai/validation.ts`)
-**Authentication:** Ed25519 via ethers Wallet in CLOB client (`src/api/clob.ts:17`)
-
----
-
-*Architecture analysis: 2026-05-02*
+The following modules exist but are **not wired into the main execution path**:
+- `src/research/` — multi-source research aggregator (news, Twitter, Reddit, CoinGecko, Binance, Crawl4AI)
+- `src/ai/` — MiniMax AI probability estimation chain
+- `src/bankroll/` — advanced bankroll/exposure-cap utilities
+- `src/db/` — SQLite schema defined but not used by main flow
