@@ -122,10 +122,10 @@ export async function getUSDCBalance(): Promise<number> {
     });
 
     const usdcBalance = Number(balance) / 1e6;
-    logger.debug({ address: walletAddr, balance: usdcBalance }, 'USDC balance retrieved');
+    logger.info({ address: walletAddr, usdcAddress: USDC_ADDRESS, rawBalance: balance.toString(), balance: usdcBalance }, 'USDC balance retrieved');
     return usdcBalance;
   } catch (error) {
-    logger.error({ error }, 'Failed to get USDC balance');
+    logger.error({ error, address: getWalletAddress() }, 'Failed to get USDC balance');
     return 0;
   }
 }
