@@ -25,7 +25,8 @@ export function getWalletAddress(): `0x${string}` {
     if (!privateKey) {
       throw new Error('PRIVATE_KEY environment variable is required');
     }
-    const account = privateKeyToAccount(privateKey as `0x${string}`);
+    const key = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    const account = privateKeyToAccount(key as `0x${string}`);
     walletAddress = account.address;
   }
   return walletAddress;
@@ -38,7 +39,8 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
     throw new Error('PRIVATE_KEY environment variable is required for CLOB client');
   }
 
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
+  const key = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+  const account = privateKeyToAccount(key as `0x${string}`);
   walletAddress = account.address;
   logger.info({ address: account.address }, 'Wallet account created (EOA mode)');
 
