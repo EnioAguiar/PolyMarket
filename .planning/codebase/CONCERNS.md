@@ -1,5 +1,33 @@
 # Concerns
 
+## CRITICAL — Bugs That Break Core Safety
+
+### C-01: `forceKillSwitch()` Does Not Exist — `/pause` Is Broken
+**File:** `src/api/telegram.ts:122`  
+The Telegram `/pause` command calls `safetyModuleRef.forceKillSwitch(true)`, but `SafetyModule` (`src/safety/index.ts`) has no such method — only `resetKillSwitch()`. The call silently fails at runtime. The `isPaused` flag still sets correctly (so new WS events are gated), but the kill switch is never actually activated. `/resume` has the same problem.
+
+### C-02: `evaluateMarketForWebSocket` Not Awaited — Errors Silently Swallowed
+**File:** `src/index.ts:120-127`  
+`handleWsEvent` is a synchronous function that calls the async `evaluateMarketForWebSocket()` without `await`. Any rejection (CLOB API error, order failure) becomes an unhandled promise rejection that is silently discarded. The market mutex acquired before the call is also never released on failure (see C-04).
+
+### C-03: `recordTrade()` Never Called — Loss Limits Are Dead Code
+**File:** `src/websocket/integration.ts:144-178` (no `recordTrade` call)  
+After a successful or failed order, `safetyModule.recordTrade()` is never invoked. This means `DailyLossTracker` and `DrawdownTracker` never receive trade results — **BANK-02 (daily loss limit) and BANK-03 (drawdown kill switch) never trigger**. The safety module accumulates no state and will never halt the bot regardless of losses.
+
+### C-04: Market Mutex Leaks on Evaluation Failure
+**File:** `src/index.ts:115`, `src/websocket/integration.ts`  
+`cycleManager.acquireMarket()` locks a market before `evaluateMarketForWebSocket()` is called. If evaluation throws (and since it's not awaited, C-02 means the error is swallowed), `cycleManager.releaseMarket()` is never called. After enough failed markets, all mutex slots are locked and no new bets can be accepted for the rest of the cycle.
+
+### C-05: No USDC Balance Check Before Order Submission
+**File:** `src/websocket/integration.ts:144`  
+`placeMarketOrder()` is called without verifying available USDC balance. If the wallet is underfunded, the order fails at the CLOB layer with a generic error. No guard, no early abort, no notification beyond the error log.
+
+### C-06: No On-Chain Transaction Confirmation
+**File:** `src/api/clob.ts:178-204`  
+After `createAndPostMarketOrder()` returns, the bot treats the order as confirmed and notifies Telegram. The `txHash` is logged but never waited on. If the on-chain transaction is dropped or reverted, the bot has no awareness of it and `cycleManager.resolveBet()` would only trigger if a `market_resolved` WS event arrives.
+
+---
+
 ## HIGH — Security
 
 ### H-01: Private Key Directly in Environment
