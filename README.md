@@ -40,15 +40,31 @@ Decisão validada na pesquisa da Fase 1 (`01-RESEARCH.md`, 11/mai/2026), e é a 
 
 **O "bate e volta" nos commits antigos foi essa indecisão entre os dois modos** — já está resolvida: manter EOA + MetaMask + USDC.
 
-### Moeda aceita: pUSD, mintado a partir de USDC.e (não USDC nativo)
+### Estado real da carteira (confirmado on-chain, 21/set/2026)
 
-Confirmado em [docs.polymarket.com/concepts/pusd](https://docs.polymarket.com/concepts/pusd) — resolve o que ficava em aberto:
+Endereço EOA derivado do `PRIVATE_KEY` atual: `0x18a658c68cb3b21a0730F09703cF42c6E5BfD3cE`.
 
-- **pUSD é o único collateral aceito para trading** no Polymarket, em qualquer modo de assinatura (EOA ou deposit wallet). Não dá pra operar direto em USDC.
-- pUSD é mintado 1:1 fazendo `wrap()` de **USDC.e** (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`) no contrato `CollateralOnramp` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`). A doc é explícita: `_asset` "must be USDC.e" — **USDC nativo da Polygon (`0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D`, recomendado pela pesquisa da Fase 1) não serve pra wrap nenhum. Essa recomendação da Fase 1 estava errada.**
-- pUSD final: `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` ([docs.polymarket.com/resources/contracts](https://docs.polymarket.com/resources/contracts)).
+| Token | Endereço | Saldo |
+|-------|----------|-------|
+| POL (gas) | nativo | 7.14 — sobrando |
+| USDC.e | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | 0 |
+| **USDC nativo (Circle)** | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | **≈ 9.21 — é aqui que o dinheiro real está** |
+| pUSD | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | 0 |
 
-**Conclusão sobre o endereço hardcoded hoje:** a constante `PUSD_ADDRESS` em `src/api/clob.ts` aponta pra `0x2791...` — **esse endereço está certo** (é USDC.e, o token que a carteira EOA precisa segurar), só o nome da constante está errado (não é pUSD, é o token pré-wrap). **O que falta de verdade é o passo de `wrap()`**: hoje o código lê o saldo de USDC.e da carteira mas nunca chama `CollateralOnramp.wrap()` pra converter em pUSD antes de operar — sem isso, o CLOB vê saldo zero em pUSD e as ordens não liquidam. É provavelmente essa a causa raiz do "bate e volta" nos commits antigos.
+`DEPOSIT_WALLET_ADDRESS` legado (`0x723b9273D0E7F82e87552A441Fe5772f101488e3`): saldo zero em tudo, confirmado morto — bate com a decisão do ROADMAP de abandonar o modo POLY_1271.
+
+**Correção sobre a pesquisa da Fase 1:** o endereço de "USDC nativo" que ela recomendava (`0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D`) **não existe como contrato na Polygon** (`eth_getCode` retorna vazio, confirmado em duas RPCs) — a IA antiga alucinou os últimos bytes do endereço (mesmo prefixo `0x3c499c542cEF5E...`, sufixo inventado). O endereço certo do USDC nativo da Circle é `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`, confirmado on-chain com o saldo real acima.
+
+### Moeda aceita: pUSD — mas o caminho oficial de depósito aceita USDC nativo direto
+
+Duas camadas diferentes, não confundir:
+
+- **Contrato on-chain** (`CollateralOnramp.wrap()`, [docs.polymarket.com/concepts/pusd](https://docs.polymarket.com/concepts/pusd)): só aceita **USDC.e** como `_asset`. Chamar isso direto com USDC nativo reverte.
+- **Bridge API oficial** (`bridge.polymarket.com`, [docs.polymarket.com/trading/bridge/deposit](https://docs.polymarket.com/trading/bridge/deposit)): "**You can deposit either USDC (native) or USDC.e (bridged)** as the source asset... wrapped into pUSD via the Collateral Onramp" — aceita os dois, inclusive na própria Polygon (`chainId 137`, mínimo **$2**, [supported-assets](https://docs.polymarket.com/trading/bridge/supported-assets)). Nossos ~$9.21 em USDC nativo passam tranquilo no mínimo.
+
+**Conclusão prática:** não precisa fazer swap manual em DEX (QuickSwap/Uniswap) pra converter USDC nativo → USDC.e antes — isso seria gastar em slippage numa quantia pequena à toa. O caminho certo é: `POST bridge.polymarket.com/deposit` com o endereço da carteira → pegar o bridge address tipo `evm` → mandar os USDC nativo (já na Polygon) pra esse endereço → a Polymarket converte e credita pUSD automaticamente. É um passo único de depósito, não algo que o bot precisa fazer a cada ciclo.
+
+**Conclusão sobre o endereço hardcoded hoje:** a constante `PUSD_ADDRESS` em `src/api/clob.ts` aponta pra `0x2791...` (USDC.e) — mas o saldo real está em USDC nativo, então **nem esse endereço nem o nome da constante batem com a realidade da carteira**. Depois do depósito via Bridge API, o saldo relevante pra bankroll passa a ser o de **pUSD** (`0xC011a7E1...`), não USDC.e nem USDC nativo — `getUSDCBalance()` precisa ler dali.
 
 ---
 
@@ -263,6 +279,7 @@ Levantados na última sessão de trabalho, ainda presentes no código:
 - **`config.yaml` commitado com `dryRun: false`** — clone novo + `PRIVATE_KEY` setado = trade real imediato
 - **Safety module é pulado inteiro em dry-run** (`checkBet()` retorna sempre `passed: true`) — bugs de safety ficam escondidos até ir pra produção
 - Estado de safety (perda diária, drawdown, cycle) é só em memória — reinício do bot zera os contadores de proteção
+- **RPC fallback list em `src/api/http.ts` está 2/3 morta**: `polygon.llamarpc.com` (default) falhou DNS, `rpc.ankr.com/polygon` agora exige API key própria — confirmado por teste direto em 21/set/2026. Só `1rpc.io/matic` e `polygon-bor-rpc.publicnode.com` responderam (`polygon.drpc.org` também). Isso explica os commits antigos mexendo em RPC — o padrão já nasceu quebrado.
 
 O arquivo original (severidade média/baixa incluída) continua no histórico do git, não precisa reproduzir manualmente: `git show 93fc1628:.planning/codebase/CONCERNS.md`
 
@@ -270,12 +287,14 @@ O arquivo original (severidade média/baixa incluída) continua no histórico do
 
 ## Próximos Passos (ordem sugerida)
 
-1. **Implementar o passo de `wrap()` que falta**: renomear `PUSD_ADDRESS` (é USDC.e, não pUSD) em `src/api/clob.ts`, e antes de operar chamar `CollateralOnramp.wrap()` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`) pra converter o USDC.e da carteira em pUSD. **Depois do wrap, trocar a fonte do `getUSDCBalance()` (bankroll) de USDC.e para pUSD (`0xC011a7E1...`)** — USDC.e cai pra ~0 após o wrap, então ler o saldo do endereço errado zera o bankroll e todo bet sai dimensionado em 0. Testar com valor pequeno.
-2. **Adicionar guard de geoblock no startup**: checar `GET https://polymarket.com/api/geoblock` a partir do IP real de deploy; abortar/alertar via Telegram se `blocked: true` (Brasil está em close-only tanto no frontend quanto na API — confirmar que o IP do Railway não cai numa faixa restrita).
-3. Atualizar `@polymarket/clob-client-v2` de `1.0.3-canary.0` para `1.1.0` estável; remover `@polymarket/builder-signing-sdk` (obsoleto pós-V2, builder auth virou campo `builderCode` na ordem).
-4. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
-5. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
-6. Só depois disso: conectar `research/` e `ai/` ao fluxo de decisão (hoje o bot decide só por preço/liquidez).
+1. **Fazer o depósito único via Bridge API** (não é código, é uma chamada/ação pontual): `POST https://bridge.polymarket.com/deposit` com o endereço `0x18a658c6...`, pegar o bridge address tipo `evm`, mandar os ~$9.21 em USDC nativo (já na Polygon, `0x3c499c...c3359`) pra esse endereço. A Polymarket credita pUSD automaticamente — sem swap manual em DEX, sem chamar `wrap()` na mão. Mínimo de depósito na Polygon é $2, tranquilo.
+2. **Corrigir `getUSDCBalance()` em `src/api/clob.ts`**: depois do depósito, o saldo de bankroll tem que vir de **pUSD** (`0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB`), não de `PUSD_ADDRESS` (que hoje aponta pra USDC.e, que nunca teve saldo nesta carteira). Renomear a constante enquanto mexe.
+3. **Trocar a lista de RPC fallback em `src/api/http.ts`** pelas que responderam de verdade: `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org` — tirar `polygon.llamarpc.com` do topo e `rpc.ankr.com` da lista (exige key agora).
+4. **Adicionar guard de geoblock no startup**: checar `GET https://polymarket.com/api/geoblock` a partir do IP real de deploy; abortar/alertar via Telegram se `blocked: true` (Brasil está em close-only tanto no frontend quanto na API). Time já usa proxy pra isso — validar que o proxy configurado responde num país fora da lista de restrição.
+5. Atualizar `@polymarket/clob-client-v2` de `1.0.3-canary.0` para `1.1.0` estável; remover `@polymarket/builder-signing-sdk` (obsoleto pós-V2, builder auth virou campo `builderCode` na ordem).
+6. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
+7. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
+8. Só depois disso: conectar `research/` e `ai/` ao fluxo de decisão (hoje o bot decide só por preço/liquidez).
 
 ---
 
