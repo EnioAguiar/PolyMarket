@@ -200,7 +200,6 @@ export async function placeMarketOrder(
       success: true,
       orderID: result.orderID,
       txHash: result.transactionsHashes?.[0],
-      executedPrice: amount,
       reason: 'Market order filled at market price',
     };
   } catch (error) {
