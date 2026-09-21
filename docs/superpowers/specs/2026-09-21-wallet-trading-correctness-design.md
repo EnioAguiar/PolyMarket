@@ -13,8 +13,7 @@ Make the bot sign and fund orders against the account's real Deposit Wallet inst
 This session confirmed on-chain and via the CLOB API itself:
 - The Polymarket account created for this bot's EOA (`0x18a658c68cb3b21a0730F09703cF42c6E5BfD3cE`) is a **Deposit Wallet** at `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` — confirmed by decoding its deployed bytecode (embeds the Deposit Wallet Factory address `0x00000000000Fb5C9ADea0298D729A0CB3823Cc07` and the EOA as owner).
 - A real test bet was placed successfully through the Polymarket UI against that Deposit Wallet, proving the account is fully functional — the bot's code just isn't configured to use it.
-- `PUSD_ADDRESS` in `src/api/clob.ts` is a misnomer: it holds the correct address for USDC.e (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`), not pUSD. The real pUSD contract is `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB`.
-- `getUSDCBalance()` reads the balance of the **EOA**, but after any deposit via Polymarket's Bridge API, the spendable balance (pUSD) lives on the **Deposit Wallet**, not the EOA. Today this function will silently report a wrong bankroll.
+- `PUSD_ADDRESS` in `src/api/clob.ts:12` is declared but **never referenced anywhere** — dead code. `getUSDCBalance()` (line 103) doesn't use it either: it hardcodes its own separate local `USDC_ADDRESS` constant at line 109 with the same USDC.e value, and reads the balance of `getWalletAddress()` (the EOA). Fixing the module-level constant alone changes nothing — the actual executed code path is the local `USDC_ADDRESS` + `walletAddr`, both of which must change.
 - `@polymarket/clob-client-v2` is pinned to `1.0.3-canary.0`; stable `1.1.0` has shipped since (many releases in between). `@polymarket/builder-signing-sdk` is obsolete under CLOB V2 (builder auth moved to a `builderCode` order field).
 
 ## Non-Goals
@@ -73,9 +72,10 @@ The `walletClient` (signer) construction does not change — the EOA still signs
 
 ### 5. Balance reading
 
-Rename `getUSDCBalance()` → `getPUSDBalance()` (via `lsp rename`, not manual find/replace — it has 3 call sites across `src/index.ts`, `src/main.ts`, `src/api/telegram.ts`) and change its body to:
-- Read `PUSD_ADDRESS` (not `USDCE_ADDRESS`).
-- Read the balance of `getFunderAddress()` (the Deposit Wallet), not `getWalletAddress()` (the EOA).
+Rename `getUSDCBalance()` → `getPUSDBalance()` (via `lsp rename`, not manual find/replace — it has 3 call sites across `src/index.ts`, `src/main.ts`, `src/api/telegram.ts`). Inside the function body:
+- Delete the dead-end local `const USDC_ADDRESS = getAddress('0x2791...')` at line 109; use the module-level `PUSD_ADDRESS` constant (`0xC011a7E1...`) instead.
+- Change `args: [getAddress(walletAddr)]` (line 121) — and the `walletAddr = getWalletAddress()` it depends on (line 107) — to `args: [getFunderAddress()]`, so the balance read targets the Deposit Wallet, not the EOA.
+- Update the `logger.info`/`logger.error` calls (lines 125, 128) that currently log `address: walletAddr` / `getWalletAddress()` to log the funder address instead, so log output matches what was actually queried.
 
 Return type and error-handling behavior (`return 0` on failure, logged) stay the same — no caller changes needed beyond the rename.
 
@@ -87,7 +87,7 @@ The CLOB backend, when queried with `POLY_1271` for a funder that isn't actually
 
 - `tests/` has no existing coverage for `src/api/clob.ts` (confirmed: CLOB client requires live credentials, per `.planning` history preserved in git). This spec does not add live-credential integration tests — matches existing project convention.
 - Add a unit test for the one pure-logic change that's actually unit-testable without a live client: `getFunderAddress()` throwing when `DEPOSIT_WALLET_ADDRESS` is unset, and returning the checksummed address when set. This is a real edge case (a fresh clone without the env var configured) worth a regression test.
-- Manual verification (already partially done this session): a real order placed against the configured `funderAddress` with `POLY_1271` either succeeds (200, order fills or rests) or fails with a specific, previously-seen error class (404 no-deposit-wallet, or a signature-rejection) — both are now understood failure modes, not mysteries.
+- **End-to-end signature-type proof**: call `client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL })` through the reconfigured client. This exact call, with `POLY_1271` against this funder, returned HTTP 404 `"no deposit wallet found for owner"` earlier this session (before the Deposit Wallet was deployed). Post-deploy, it must return a real allowance object instead of erroring — that proves `signatureType`/`funderAddress` are wired correctly end-to-end, without needing to place a live order (the remaining ~$0.98 pUSD balance is likely under Polymarket's minimum order size anyway).
 
 ## Success Criteria
 
@@ -96,4 +96,5 @@ The CLOB backend, when queried with `POLY_1271` for a funder that isn't actually
 - [ ] `getPUSDBalance()` (renamed from `getUSDCBalance()`) reads `PUSD_ADDRESS` balance of the funder address, all 3 call sites still compile and pass their existing type checks.
 - [ ] `.env.example` documents `DEPOSIT_WALLET_ADDRESS` correctly (Deposit Wallet account address, not EOA, not computed locally).
 - [ ] New unit test for `getFunderAddress()` passes.
-- [ ] Manual smoke test: bot's `createClobClient()` + `getPUSDBalance()` run against the real funded account (`0xA53EE08...`) and report the real pUSD balance (not 0, not the EOA's unrelated USDC-native balance).
+- [ ] `client.getBalanceAllowance({ asset_type: AssetType.COLLATERAL })` returns successfully (no 404) through the reconfigured client — the concrete regression check for the exact failure observed this session pre-fix.
+- [ ] Manual smoke test: `getPUSDBalance()` run against the real funded account reports the real pUSD balance (currently ~$0.98 after the test bet), not 0 and not the EOA's unrelated native-USDC balance.
