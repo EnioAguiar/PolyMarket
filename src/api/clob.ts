@@ -9,7 +9,7 @@ import { createSharedPublicClient } from './http.js';
 let clobClient: ClobClient | null = null;
 let walletAddress: `0x${string}` | null = null;
 
-const PUSD_ADDRESS = getAddress('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174');
+const PUSD_ADDRESS = getAddress('0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB');
 
 export interface OrderExecutionResult {
   success: boolean;
@@ -50,7 +50,7 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const key = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
   const account = privateKeyToAccount(key as `0x${string}`);
   walletAddress = account.address;
-  logger.info({ address: account.address }, 'Wallet account created (EOA mode)');
+  logger.info({ address: account.address, funder: getFunderAddress() }, 'Wallet account created (Deposit Wallet mode)');
 
   const walletClient = createWalletClient({
     account,
@@ -62,13 +62,13 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
   const chain = config.polymarket.chainId;
   logger.info({ host, chain }, 'CLOB config');
 
-  const funder = account.address;
+  const funder = getFunderAddress();
   logger.info({ msg: 'Creating temporary client to derive API credentials...' });
   const tempClient = new ClobClient({
     host,
     chain,
     signer: walletClient,
-    signatureType: SignatureTypeV2.EOA,
+    signatureType: SignatureTypeV2.POLY_1271,
     funderAddress: funder,
   });
 
@@ -86,7 +86,7 @@ export async function createClobClient(config: Config): Promise<ClobClient> {
     chain,
     signer: walletClient,
     creds,
-    signatureType: SignatureTypeV2.EOA,
+    signatureType: SignatureTypeV2.POLY_1271,
     funderAddress: funder,
   });
   logger.info({ msg: 'ClobClient instance created with L2 auth' });
@@ -199,9 +199,9 @@ export async function placeMarketOrder(
     return {
       success: true,
       orderID: result.orderID,
-      txHash: result.txHash,
-      executedPrice: result.executedPrice || amount,
-      reason: `Market order filled at ${result.executedPrice || 'market price'}`,
+      txHash: result.transactionsHashes?.[0],
+      executedPrice: amount,
+      reason: 'Market order filled at market price',
     };
   } catch (error) {
     logger.error({ tokenId, side, amount, error }, 'Market order failed');
@@ -240,7 +240,7 @@ export async function placeLimitOrder(
     return {
       success: true,
       orderID: result.orderID,
-      txHash: result.txHash,
+      txHash: result.transactionsHashes?.[0],
       executedPrice: price,
       reason: `Limit order posted at ${price}`,
     };
