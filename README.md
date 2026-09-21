@@ -29,25 +29,23 @@ Projeto parado desde **05/jun/2026** (último commit `93fc1628`), no meio da mig
 
 ---
 
-## Decisão de Carteira: MetaMask assina, conta parece ser Deposit Wallet — **POLY_1271 é hipótese, não fato confirmado**
+## Decisão de Carteira: MetaMask assina, conta é Deposit Wallet — **`POLY_1271` confirmado on-chain** (não mais hipótese)
 
-**Isso inverteria o que a pesquisa da Fase 1 concluiu em 11/mai/2026, mas ainda falta uma prova on-chain.** Sequência reconstruída nesta sessão (21/set/2026):
+**Isso inverte o que a pesquisa da Fase 1 concluiu em 11/mai/2026 — e agora está provado, não só inferido.** Sequência completa desta sessão (21/set/2026):
 
-1. Conectamos a EOA `0x18a658c6...` via MetaMask no polymarket.com — resultado: **conta nova** criada (`id 9843725`, pseudônimo "Satisfied-Caboose"), confirmada via `polymarket.com/api/profile/userData?address=0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b`. O endereço da conta é **diferente** da EOA que assina — bate com o modelo `Deposit Wallet`, padrão desde 4/mai/2026 segundo `docs.polymarket.com/trading/wallets-auth`.
-2. A tela "Chaves de sessão" apareceu disponível pra essa conta — a doc de Session Keys diz que isso **só existe pra Deposit Wallets** ("a dedicated migration flow from Safe Wallets and Proxy Wallets is planned"), o que é evidência forte a favor de Deposit Wallet.
-3. **Mas a wallet `0xA53EE08...` ainda não foi deployada on-chain** (`eth_getCode` retorna vazio, confirmado duas vezes, 21/set/2026) — não dá pra ler o bytecode e confirmar o formato do proxy ainda. Três tentativas de calcular o endereço localmente (`deriveProxyWallet`, `deriveDepositWallet`, `deriveSafe`, todas via `@polymarket/builder-relayer-client` 0.0.9) **não bateram com nada** — inconclusivo, provavelmente lib desatualizada, não prova nem contra Deposit Wallet.
-4. A EOA confirmou como "assinante" na própria tela de Relayer da Polymarket — bate com o modelo signer≠wallet.
+1. Conectamos a EOA `0x18a658c6...` via MetaMask no polymarket.com — resultado: **conta nova** (`id 9843725`, pseudônimo "Satisfied-Caboose"), endereço `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b`, diferente da EOA que assina.
+2. Depósito de teste ($3 via Bridge API) creditou pUSD nessa conta, mas a wallet ainda não estava deployada on-chain (`eth_getCode` vazio) — não dava pra confirmar o formato do proxy ainda.
+3. Usuário completou o fluxo "Ativar Negociação" da própria Polymarket (Implantar Carteira → Aprovar tokens) e colocou uma aposta real de teste (~$2, mercado "Bitcoin Up or Down"). Isso forçou o deploy da wallet.
+4. **`eth_getCode` em `0xA53EE08...` agora retorna bytecode real.** Decodificado: é um clone BeaconProxy que embute dois endereços — `0x00000000000Fb5C9ADea0298D729A0CB3823Cc07` (o **Deposit Wallet Factory** oficial, [docs.polymarket.com/resources/contracts](https://docs.polymarket.com/resources/contracts)) e `0x18a658c68cb3b21a0730F09703cF42c6E5BfD3cE` (a EOA, como owner). Bate exatamente com a doc ("ERC-1967 BeaconProxy clones", [docs.polymarket.com/trading/deposit-wallets](https://docs.polymarket.com/trading/deposit-wallets)). **Confirmado: é Deposit Wallet, não Proxy Wallet nem Safe.**
 
-**Plano pra fechar a dúvida sem custo extra:** o depósito de teste de $2 (próxima seção) vai forçar o deploy da wallet. Depois disso, `eth_getCode` revela o formato de verdade: clone EIP-1167 simples → `POLY_PROXY` (1), Safe → `POLY_GNOSIS_SAFE` (2), proxy ERC-1967/beacon → `POLY_1271` (3). Até lá, tudo abaixo que menciona `POLY_1271` é a hipótese mais provável, não fato fechado.
-
-**Configuração de código, condicionada à confirmação:**
+**Configuração de código, agora sem ambiguidade:**
 
 | Modo | Signature Type (`@polymarket/clob-client-v2`) | Funder | Situação |
 |------|----------------|--------|------------|
-| EOA — **é o que `src/api/clob.ts` usa hoje** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Só funcionaria se a conta fosse EOA pura — **quase certamente não é o caso aqui** |
-| **Deposit Wallet — hipótese líder, a confirmar por bytecode** | `SignatureTypeV2.POLY_1271 = 3` | `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a wallet, não a EOA) | Se confirmado, é o que os commits antigos (`d23d8a49`, `a746c7ba`, `ead039d5`) tentaram e abandonaram cedo demais. |
+| EOA — **é o que `src/api/clob.ts` usa hoje** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Errado pra essa conta — confirmado |
+| **Deposit Wallet — confirmado por bytecode** | `SignatureTypeV2.POLY_1271 = 3` | `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a wallet, não a EOA) | É o que os commits antigos (`d23d8a49`, `a746c7ba`, `ead039d5`) tentaram e abandonaram cedo demais — a decisão de abandonar era a errada. |
 
-**O que não muda independente da confirmação:** a chave privada (signer) continua sendo a mesma da EOA `0x18a658c6...`. O que muda é `funderAddress` e `signatureType` em `createClobClient()` (`src/api/clob.ts`).
+**O que não muda:** a chave privada (signer) continua sendo a mesma da EOA `0x18a658c6...`. O que muda é `funderAddress` e `signatureType` em `createClobClient()` (`src/api/clob.ts`).
 
 
 ### `DEPOSIT_WALLET_ADDRESS` do `.env` está desatualizado — trocar pelo endereço novo
@@ -62,7 +60,7 @@ Primeira tentativa (`tx 0x5181ea7a...`) foi erro de digitação — `transfer()`
 
 **Resultado, checado direto on-chain:** saldo de pUSD (`0xC011a7E1...`) em `0xA53EE08...` = **$3.00 exatos**. O Bridge API converteu automaticamente, sem swap manual, sem chamar `wrap()` na mão.
 
-**Detalhe que ainda fica em aberto:** mesmo com saldo, `eth_getCode` em `0xA53EE08...` continua vazio — receber pUSD (ERC-20 comum) não exige que a wallet em si já esteja deployada, só a primeira **ação** da wallet (colocar ordem, mover fundos) deve forçar o deploy. Ou seja, o tipo de proxy (`POLY_1271` vs `POLY_PROXY` vs `POLY_GNOSIS_SAFE`) só vai ficar 100% confirmado na primeira tentativa real de ordem no CLOB — que é o próximo passo depois de ajustar `src/api/clob.ts`.
+**Resolvido:** o tipo de proxy ficou confirmado (Deposit Wallet, `POLY_1271`) — ver seção "Decisão de Carteira" acima, com bytecode decodificado.
 
 ### Estado real da carteira (confirmado on-chain, 21/set/2026)
 
@@ -70,10 +68,11 @@ Endereço EOA (signer) `0x18a658c68cb3b21a0730F09703cF42c6E5BfD3cE` — endereç
 
 | Token | Endereço | EOA (signer) | Conta (`0xA53EE08...`) |
 |-------|----------|---------------|--------------------------|
-| POL (gas) | nativo | ~7.13 — sobrando | 0 |
+| POL (gas) | nativo | ~7.09 (caiu de 7.14 — o deploy/aprovação gastaram gas direto da EOA, não foi tudo via Relayer gasless) | 0 |
 | USDC.e | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | 0 | 0 |
-| USDC nativo (Circle) | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | **≈ 6.21** (depois do depósito de teste) | 0 |
-| **pUSD** | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | 0 | **$3.00 — depósito de teste confirmado** |
+| USDC nativo (Circle) | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | **≈ 6.21** | 0 |
+| pUSD | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | 0 | **≈ $0.98** (sobra depois da aposta de teste) |
+| Posição aberta | mercado "Bitcoin Up or Down" (5min, 21/set) | — | 2.2988 shares "Up" @ $0.87, custo $2.02, valor atual ~$1.87 |
 
 
 **Correção sobre a pesquisa da Fase 1:** o endereço de "USDC nativo" que ela recomendava (`0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D`) **não existe como contrato na Polygon** (`eth_getCode` retorna vazio, confirmado em duas RPCs) — a IA antiga alucinou os últimos bytes do endereço (mesmo prefixo `0x3c499c542cEF5E...`, sufixo inventado). O endereço certo do USDC nativo da Circle é `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`, confirmado on-chain com o saldo real acima.
@@ -311,7 +310,7 @@ O arquivo original (severidade média/baixa incluída) continua no histórico do
 ## Próximos Passos (ordem sugerida)
 
 1. ~~Fazer o depósito único via Bridge API~~ ✅ **feito** (21/set/2026): `tx 0x045a9b98...`, $3.00 pUSD confirmados on-chain em `0xA53EE08...`. Restam ~$6.21 em USDC nativo na EOA pra depois de validar o fluxo de trading.
-2. **Trocar `createClobClient()` em `src/api/clob.ts` de EOA pra Deposit Wallet**: `signatureType: SignatureTypeV2.POLY_1271` (hipótese líder, não confirmada por bytecode ainda — ver seção acima), `funderAddress: '0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b'` (não mais igual ao signer). O `walletClient` (assinatura) continua o mesmo, só o funder muda. Atualizar `DEPOSIT_WALLET_ADDRESS` no `.env` pra esse valor novo. **A primeira ordem real de teste confirma ou derruba a hipótese `POLY_1271`** — se rejeitar a assinatura, tentar `POLY_PROXY` (1) ou `POLY_GNOSIS_SAFE` (2) em seguida.
+2. **Trocar `createClobClient()` em `src/api/clob.ts` de EOA pra Deposit Wallet**: `signatureType: SignatureTypeV2.POLY_1271` (confirmado por bytecode on-chain, ver seção "Decisão de Carteira"), `funderAddress: '0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b'` (não mais igual ao signer). O `walletClient` (assinatura) continua o mesmo, só o funder muda. Atualizar `DEPOSIT_WALLET_ADDRESS` no `.env` pra esse valor novo.
 3. **Corrigir `getUSDCBalance()` em `src/api/clob.ts`**: depois do depósito, o saldo de bankroll tem que vir de **pUSD** (`0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB`) **na Deposit Wallet** (`0xA53EE08...`), não `PUSD_ADDRESS` (que hoje aponta pra USDC.e e além disso lê a EOA errada). Renomear a constante enquanto mexe.
 4. **Trocar a lista de RPC fallback em `src/api/http.ts`** pelas que responderam de verdade: `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org` — tirar `polygon.llamarpc.com` do topo e `rpc.ankr.com` da lista (exige key agora).
 5. **Adicionar guard de geoblock no startup**: checar `GET https://polymarket.com/api/geoblock` a partir do IP real de deploy; abortar/alertar via Telegram se `blocked: true` (Brasil está em close-only tanto no frontend quanto na API). Time já usa proxy pra isso — validar que o proxy configurado responde num país fora da lista de restrição.
