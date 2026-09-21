@@ -96,7 +96,7 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
       const effectiveBankroll = balance * (bankrollUsagePct / 100);
       ctx.reply(
         `💰 *Wallet Balance*\n\n` +
-        `Real: $${balance.toFixed(2)} USDC\n` +
+        `Real: $${balance.toFixed(2)} pUSD\n` +
         `Using: ${bankrollUsagePct}% ($${effectiveBankroll.toFixed(2)})\n` +
         `Max bet: $${(effectiveBankroll * 0.08).toFixed(2)}`
       );
