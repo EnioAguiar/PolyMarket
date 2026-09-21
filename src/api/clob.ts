@@ -110,10 +110,10 @@ export function getClobClient(): ClobClient {
 
 export async function getPUSDBalance(): Promise<number> {
   const logger = getLogger();
-  const funder = getFunderAddress();
+  let funder: `0x${string}` | undefined;
   try {
+    funder = getFunderAddress();
     const publicClient = createSharedPublicClient();
-
     const balance = await publicClient.readContract({
       address: PUSD_ADDRESS,
       abi: [{
