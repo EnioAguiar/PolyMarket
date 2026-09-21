@@ -68,7 +68,7 @@ Endereço EOA (signer) `0x18a658c68cb3b21a0730F09703cF42c6E5BfD3cE` — endereç
 
 | Token | Endereço | EOA (signer) | Conta (`0xA53EE08...`) |
 |-------|----------|---------------|--------------------------|
-| POL (gas) | nativo | ~7.09 (caiu de 7.14 — o deploy/aprovação gastaram gas direto da EOA, não foi tudo via Relayer gasless) | 0 |
+| POL (gas) | nativo | ~7.09 (caiu de 7.14, mas só por causa das 2 transferências de USDC — `0.0459 POL` de gas, bate exato: `0xc6d3×0x5c99792d26 + 0x13127×0x4c8ba21c6a = 0.045926 POL`. Deploy da wallet + aprovação de tokens **foram gasless via Relayer** — nonce da EOA parou em 3, sem transação extra pra isso) | 0 |
 | USDC.e | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | 0 | 0 |
 | USDC nativo (Circle) | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | **≈ 6.21** | 0 |
 | pUSD | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | 0 | **≈ $0.98** (sobra depois da aposta de teste) |
