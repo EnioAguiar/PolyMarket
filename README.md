@@ -40,17 +40,33 @@ Decisão validada na pesquisa da Fase 1 (`01-RESEARCH.md`, 11/mai/2026), e é a 
 
 **O "bate e volta" nos commits antigos foi essa indecisão entre os dois modos** — já está resolvida: manter EOA + MetaMask + USDC.
 
-### Confusão de endereço de contrato (não resolvida)
+### Moeda aceita: pUSD, mintado a partir de USDC.e (não USDC nativo)
 
-Três endereços diferentes aparecem na história do projeto, e o código hoje usa o errado para o propósito atual:
+Confirmado em [docs.polymarket.com/concepts/pusd](https://docs.polymarket.com/concepts/pusd) — resolve o que ficava em aberto:
 
-| Token | Endereço | Onde é citado |
-|-------|----------|----------------|
-| pUSD (collateral oficial do CLOB V2 desde 28/abr/2026) | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | [docs.polymarket.com/resources/contracts](https://docs.polymarket.com/resources/contracts) |
-| USDC nativo (Polygon) | `0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D` | Recomendado pela pesquisa da Fase 1 (11/mai/2026) para ler saldo da carteira EOA — **mas essa pesquisa ignora o cutover do CLOB V2 (28/abr/2026)**, que passou o collateral pra pUSD independente do signature type. Não é fato assentado, é a hipótese antiga a re-testar. |
-| USDC.e (bridged, legado) | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | **É o que está hardcoded hoje** em `src/api/clob.ts` na constante `PUSD_ADDRESS` (nome errado — nem é pUSD) |
+- **pUSD é o único collateral aceito para trading** no Polymarket, em qualquer modo de assinatura (EOA ou deposit wallet). Não dá pra operar direto em USDC.
+- pUSD é mintado 1:1 fazendo `wrap()` de **USDC.e** (`0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`) no contrato `CollateralOnramp` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`). A doc é explícita: `_asset` "must be USDC.e" — **USDC nativo da Polygon (`0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D`, recomendado pela pesquisa da Fase 1) não serve pra wrap nenhum. Essa recomendação da Fase 1 estava errada.**
+- pUSD final: `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` ([docs.polymarket.com/resources/contracts](https://docs.polymarket.com/resources/contracts)).
 
-**Ponto em aberto para a próxima sessão:** a doc oficial de migração V2 diz que o collateral do CLOB agora é pUSD e que "traders API-only" precisam converter USDC.e → pUSD via `wrap()` no contrato `CollateralOnramp` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`) — isso vale independente do modo de assinatura (EOA ou deposit wallet). Ou seja: mesmo com EOA correto, pode ser necessário ter pUSD (não USDC bruto) na carteira para as ordens liquidarem. Isso nunca foi testado. Ver checklist em [docs.polymarket.com/v2-migration](https://docs.polymarket.com/v2-migration).
+**Conclusão sobre o endereço hardcoded hoje:** a constante `PUSD_ADDRESS` em `src/api/clob.ts` aponta pra `0x2791...` — **esse endereço está certo** (é USDC.e, o token que a carteira EOA precisa segurar), só o nome da constante está errado (não é pUSD, é o token pré-wrap). **O que falta de verdade é o passo de `wrap()`**: hoje o código lê o saldo de USDC.e da carteira mas nunca chama `CollateralOnramp.wrap()` pra converter em pUSD antes de operar — sem isso, o CLOB vê saldo zero em pUSD e as ordens não liquidam. É provavelmente essa a causa raiz do "bate e volta" nos commits antigos.
+
+---
+
+## Elegibilidade Geográfica (Geoblock) — Brasil
+
+Confirmado em [docs.polymarket.com/api-reference/geoblock](https://docs.polymarket.com/api-reference/geoblock) (endpoint `GET https://polymarket.com/api/geoblock`, checa IP de origem):
+
+| Nível | O que bloqueia | Países |
+|-------|-----------------|--------|
+| Block completely (frontend + API) | Nenhuma ordem nova, nem fechar posição existente | Só sancionados OFAC: Irã, Síria, Cuba, Coreia do Norte, Crimeia/Donetsk/Luhansk |
+| **Close-only (frontend + API)** | **Fecha posição existente, mas não abre nova** | **Brasil está aqui**, junto com EUA, Reino Unido, Alemanha, França, Rússia, Austrália, Canadá (algumas províncias) e outros ~30 países |
+| Close-only (só frontend) | API não é restringida | Irlanda, Japão, Países Baixos, Coreia do Sul, Malta (esportes) |
+
+**Implicação direta:** IP brasileiro **não abre ordem nova nem pelo site nem pela API** — não é "site bloqueado, API livre". Rodar o bot a partir de uma casa/IP residencial no Brasil não funcionaria de jeito nenhum pra abrir posição, mesmo batendo direto na API.
+
+**Por isso o deploy é no Railway:** o geoblock verifica o IP de origem da requisição HTTP, não a localização/nacionalidade do dono da carteira. Rodando em servidor cloud (Railway, fora do Brasil) a requisição sai com IP do datacenter, não IP brasileiro — isso contorna a restrição, mas nunca foi documentado nem testado explicitamente. Isso também explica as dependências `proxy-agent`, `socks-proxy-agent` e `global-agent` já presentes no `package.json`: existem pra rotear tráfego por um IP de região não restrita, caso a região do Railway alguma vez seja sinalizada.
+
+**Risco em aberto:** nunca foi confirmado que a região atual do deploy Railway está fora da lista de restrição. Adicionar uma checagem do endpoint `/api/geoblock` no startup do bot (falhar cedo e alertar via Telegram se `blocked: true`) evitaria descobrir isso só quando uma ordem for rejeitada em produção.
 
 ---
 
@@ -254,8 +270,8 @@ O arquivo original (severidade média/baixa incluída) continua no histórico do
 
 ## Próximos Passos (ordem sugerida)
 
-1. **Resolver a confusão de collateral**: confirmar se CLOB V2 exige saldo em pUSD mesmo em modo EOA; se sim, decidir entre (a) fazer `wrap()` de USDC → pUSD via `CollateralOnramp` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`) ou (b) confirmar que EOA aceita USDC nativo direto. Testar com valor pequeno.
-2. Corrigir `PUSD_ADDRESS` em `src/api/clob.ts` — renomear e apontar para o endereço certo conforme decisão acima.
+1. **Implementar o passo de `wrap()` que falta**: renomear `PUSD_ADDRESS` (é USDC.e, não pUSD) em `src/api/clob.ts`, e antes de operar chamar `CollateralOnramp.wrap()` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`) pra converter o USDC.e da carteira em pUSD. Testar com valor pequeno.
+2. **Adicionar guard de geoblock no startup**: checar `GET https://polymarket.com/api/geoblock` a partir do IP real de deploy; abortar/alertar via Telegram se `blocked: true` (Brasil está em close-only tanto no frontend quanto na API — confirmar que o IP do Railway não cai numa faixa restrita).
 3. Atualizar `@polymarket/clob-client-v2` de `1.0.3-canary.0` para `1.1.0` estável; remover `@polymarket/builder-signing-sdk` (obsoleto pós-V2, builder auth virou campo `builderCode` na ordem).
 4. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
 5. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
