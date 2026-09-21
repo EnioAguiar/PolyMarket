@@ -257,10 +257,9 @@ O arquivo original (severidade média/baixa incluída) continua no histórico do
 1. **Resolver a confusão de collateral**: confirmar se CLOB V2 exige saldo em pUSD mesmo em modo EOA; se sim, decidir entre (a) fazer `wrap()` de USDC → pUSD via `CollateralOnramp` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`) ou (b) confirmar que EOA aceita USDC nativo direto. Testar com valor pequeno.
 2. Corrigir `PUSD_ADDRESS` em `src/api/clob.ts` — renomear e apontar para o endereço certo conforme decisão acima.
 3. Atualizar `@polymarket/clob-client-v2` de `1.0.3-canary.0` para `1.1.0` estável; remover `@polymarket/builder-signing-sdk` (obsoleto pós-V2, builder auth virou campo `builderCode` na ordem).
-4. Reverter o debug solto sem commit em `src/api/http.ts` (removeu fallback de RPC e retry) — não é trabalho em andamento, é regressão.
-5. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
-6. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
-7. Só depois disso: conectar `research/` e `ai/` ao fluxo de decisão (hoje o bot decide só por preço/liquidez).
+4. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
+5. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
+6. Só depois disso: conectar `research/` e `ai/` ao fluxo de decisão (hoje o bot decide só por preço/liquidez).
 
 ---
 
