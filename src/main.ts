@@ -2,7 +2,7 @@ import 'global-agent/bootstrap';
 import { loadConfig, isDryRun } from './config/index.js';
 import { initLogger, getLogger, logBetDecision } from './logging/index.js';
 import { fetchMarkets, filterByCategory, filterByTimeHorizon, getYesTokenId } from './api/polymarket.js';
-import { getOrderBook, getMidPrice, createClobClient, hasLiquidity, getUSDCBalance } from './api/clob.js';
+import { getOrderBook, getMidPrice, createClobClient, hasLiquidity, getPUSDBalance } from './api/clob.js';
 import { SafetyModule } from './safety/index.js';
 import type { Market, SafetyState } from './types/index.js';
 
@@ -16,7 +16,7 @@ export async function runBotCycle(): Promise<void> {
   let effectiveBankroll = 1000;
   if (!config.dryRun) {
     clobClient = await createClobClient(config);
-    const realBalance = await getUSDCBalance();
+    const realBalance = await getPUSDBalance();
     effectiveBankroll = realBalance * config.safety.bankrollUsagePct;
     logger.info({ realBalance, effectiveBankroll }, 'Wallet balance loaded');
   }

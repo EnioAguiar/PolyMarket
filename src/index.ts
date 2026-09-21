@@ -9,7 +9,7 @@ import { logWsEvent } from './websocket/events.js';
 import { evaluateMarketForWebSocket, handleBestBidAskUpdate, handleMarketResolved } from './websocket/integration.js';
 import type { Config, SafetyState } from './types/index.js';
 import { SafetyModule } from './safety/index.js';
-import { createClobClient, getUSDCBalance } from './api/clob.js';
+import { createClobClient, getPUSDBalance } from './api/clob.js';
 import { createCycleManager } from './betting/index.js';
 import type { CycleManager } from './betting/index.js';
 import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram, updateBotStatus } from './api/telegram.js';
@@ -186,7 +186,7 @@ async function main(): Promise<void> {
 
     if (!config.dryRun) {
       clobClient = await createClobClient(config);
-      const realBalance = await getUSDCBalance();
+      const realBalance = await getPUSDBalance();
       safetyModule = new SafetyModule(config, initialState, realBalance);
       setSafetyModule(safetyModule);
       updateBotStatus({

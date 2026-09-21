@@ -90,8 +90,8 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
 
   bot.command('balance', async (ctx) => {
     try {
-      const { getUSDCBalance } = await import('./clob.js');
-      const balance = await getUSDCBalance();
+      const { getPUSDBalance } = await import('./clob.js');
+      const balance = await getPUSDBalance();
       const bankrollUsagePct = 50;
       const effectiveBankroll = balance * (bankrollUsagePct / 100);
       ctx.reply(

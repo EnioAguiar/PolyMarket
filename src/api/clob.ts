@@ -108,16 +108,14 @@ export function getClobClient(): ClobClient {
   return clobClient;
 }
 
-export async function getUSDCBalance(): Promise<number> {
+export async function getPUSDBalance(): Promise<number> {
   const logger = getLogger();
+  const funder = getFunderAddress();
   try {
     const publicClient = createSharedPublicClient();
-    const walletAddr = getWalletAddress();
-
-    const USDC_ADDRESS = getAddress('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174');
 
     const balance = await publicClient.readContract({
-      address: USDC_ADDRESS,
+      address: PUSD_ADDRESS,
       abi: [{
         inputs: [{ name: 'account', type: 'address' }],
         name: 'balanceOf',
@@ -126,14 +124,14 @@ export async function getUSDCBalance(): Promise<number> {
         type: 'function',
       }],
       functionName: 'balanceOf',
-      args: [getAddress(walletAddr)],
+      args: [funder],
     });
 
-    const usdcBalance = Number(balance) / 1e6;
-    logger.info({ address: walletAddr, usdcAddress: USDC_ADDRESS, rawBalance: balance.toString(), balance: usdcBalance }, 'USDC balance retrieved');
-    return usdcBalance;
+    const pusdBalance = Number(balance) / 1e6;
+    logger.info({ funder, pusdAddress: PUSD_ADDRESS, rawBalance: balance.toString(), balance: pusdBalance }, 'pUSD balance retrieved');
+    return pusdBalance;
   } catch (error) {
-    logger.error({ error, address: getWalletAddress() }, 'Failed to get USDC balance');
+    logger.error({ error, funder }, 'Failed to get pUSD balance');
     return 0;
   }
 }
