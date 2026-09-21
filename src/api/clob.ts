@@ -32,6 +32,14 @@ export function getWalletAddress(): `0x${string}` {
   return walletAddress;
 }
 
+export function getFunderAddress(): `0x${string}` {
+  const depositWallet = process.env.DEPOSIT_WALLET_ADDRESS;
+  if (!depositWallet) {
+    throw new Error('DEPOSIT_WALLET_ADDRESS environment variable is required');
+  }
+  return getAddress(depositWallet) as `0x${string}`;
+}
+
 export async function createClobClient(config: Config): Promise<ClobClient> {
   const logger = getLogger();
   const privateKey = process.env.PRIVATE_KEY;
