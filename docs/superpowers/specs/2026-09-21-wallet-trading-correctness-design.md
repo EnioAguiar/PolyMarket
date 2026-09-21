@@ -33,12 +33,11 @@ This session confirmed on-chain and via the CLOB API itself:
 - Remove `@polymarket/builder-signing-sdk` entirely (dependency + any import, currently unused in `src/`).
 - Verify `SignatureTypeV2.POLY_1271` still exists under that name in `1.1.0` (checked already: yes, unchanged in the `1.1.0` type definitions).
 
-### 2. Wallet address constants (`src/api/clob.ts`)
+### 2. Wallet address constant (`src/api/clob.ts`)
 
-Replace the single misnamed constant with two correctly named ones:
+Replace the misnamed module-level constant with the correctly named, correctly valued one — nothing in `src/` needs the USDC.e address as a standalone constant after the Section 5 fix (it lives only in README deposit notes), so this stays a single constant, not two:
 
 ```typescript
-const USDCE_ADDRESS = getAddress('0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'); // USDC.e — bridge-deposit source token, NOT collateral
 const PUSD_ADDRESS = getAddress('0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB'); // pUSD — actual CLOB collateral, lives on the Deposit Wallet
 ```
 
