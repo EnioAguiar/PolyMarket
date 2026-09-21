@@ -105,6 +105,15 @@ git commit -m "feat(clob): add getFunderAddress() resolving the Deposit Wallet a
 - Consumes: `getFunderAddress()` from Task 1.
 - Produces: `createClobClient()` return type and call signature unchanged (`(config: Config) => Promise<ClobClient>`) — only its internal wiring changes, so `src/index.ts` and `src/main.ts` (its only callers) need no edits.
 
+- [ ] **Step 0: Untrack `node_modules` before touching any dependency**
+
+`node_modules/` is already in `.gitignore`, but ~18,281 files inside it are still tracked in git from before that rule existed (confirmed this session via `git ls-files node_modules | wc -l`). Running `npm install` next would leave thousands of modified tracked files, making `git status` useless for the rest of this plan. Untrack it first — this is a no-op for runtime behavior, purely a git bookkeeping fix:
+
+```bash
+git rm -r --cached node_modules
+git commit -m "chore: untrack node_modules (already gitignored, ~18k stale committed files)"
+```
+
 - [ ] **Step 1: Bump the SDK version and drop the obsolete builder-signing dependency**
 
 In `package.json`, change line 14-15 from:
