@@ -29,22 +29,26 @@ Projeto parado desde **05/jun/2026** (último commit `93fc1628`), no meio da mig
 
 ---
 
-## Decisão de Carteira: MetaMask assina, mas a conta é Deposit Wallet (POLY_1271) — não EOA pura
+## Decisão de Carteira: MetaMask assina, conta parece ser Deposit Wallet — **POLY_1271 é hipótese, não fato confirmado**
 
-**Isso inverte o que a pesquisa da Fase 1 concluiu em 11/mai/2026.** Sequência real de eventos, reconstruída nesta sessão (21/set/2026):
+**Isso inverteria o que a pesquisa da Fase 1 concluiu em 11/mai/2026, mas ainda falta uma prova on-chain.** Sequência reconstruída nesta sessão (21/set/2026):
 
-1. Conectamos a EOA `0x18a658c6...` via MetaMask no polymarket.com **agora** — resultado: **conta nova** criada (`id 9843725`, pseudônimo "Satisfied-Caboose"), confirmada via `polymarket.com/api/profile/userData?address=0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (relato do usuário + verificação da API, 21/set/2026).
-2. O endereço da conta (**`0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b`**) é **diferente** da EOA (`0x18a658c6...`) que assina. Ou seja: a EOA é o **signer**, mas a **wallet** onde o pUSD/posições ficam é outro endereço — exatamente o modelo `Deposit Wallet` que `docs.polymarket.com/trading/wallets-auth` descreve como **padrão desde 4/mai/2026**.
-3. Checagem on-chain: `eth_getCode` em `0xA53EE08...` retorna vazio — a wallet ainda não foi deployada de verdade (só reservada/computada), o que é normal nesse modelo (deploy costuma acontecer no primeiro uso/depósito, não na conexão).
+1. Conectamos a EOA `0x18a658c6...` via MetaMask no polymarket.com — resultado: **conta nova** criada (`id 9843725`, pseudônimo "Satisfied-Caboose"), confirmada via `polymarket.com/api/profile/userData?address=0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b`. O endereço da conta é **diferente** da EOA que assina — bate com o modelo `Deposit Wallet`, padrão desde 4/mai/2026 segundo `docs.polymarket.com/trading/wallets-auth`.
+2. A tela "Chaves de sessão" apareceu disponível pra essa conta — a doc de Session Keys diz que isso **só existe pra Deposit Wallets** ("a dedicated migration flow from Safe Wallets and Proxy Wallets is planned"), o que é evidência forte a favor de Deposit Wallet.
+3. **Mas a wallet `0xA53EE08...` ainda não foi deployada on-chain** (`eth_getCode` retorna vazio, confirmado duas vezes, 21/set/2026) — não dá pra ler o bytecode e confirmar o formato do proxy ainda. Três tentativas de calcular o endereço localmente (`deriveProxyWallet`, `deriveDepositWallet`, `deriveSafe`, todas via `@polymarket/builder-relayer-client` 0.0.9) **não bateram com nada** — inconclusivo, provavelmente lib desatualizada, não prova nem contra Deposit Wallet.
+4. A EOA confirmou como "assinante" na própria tela de Relayer da Polymarket — bate com o modelo signer≠wallet.
 
-**Isso significa que a configuração atual do código está errada pra essa conta:**
+**Plano pra fechar a dúvida sem custo extra:** o depósito de teste de $2 (próxima seção) vai forçar o deploy da wallet. Depois disso, `eth_getCode` revela o formato de verdade: clone EIP-1167 simples → `POLY_PROXY` (1), Safe → `POLY_GNOSIS_SAFE` (2), proxy ERC-1967/beacon → `POLY_1271` (3). Até lá, tudo abaixo que menciona `POLY_1271` é a hipótese mais provável, não fato fechado.
+
+**Configuração de código, condicionada à confirmação:**
 
 | Modo | Signature Type (`@polymarket/clob-client-v2`) | Funder | Situação |
 |------|----------------|--------|------------|
-| EOA — **é o que `src/api/clob.ts` usa hoje** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Só funcionaria se a conta fosse EOA pura — **não é o caso aqui** |
-| **Deposit Wallet — o que essa conta realmente precisa** | `SignatureTypeV2.POLY_1271 = 3` ("EIP1271 signatures signed by smart contracts... smart contract wallets or vaults") | `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a wallet, não a EOA) | É exatamente o que os commits antigos (`d23d8a49`, `a746c7ba`, `ead039d5`) tentaram e abandonaram — **a decisão de abandonar estava errada**, ou pelo menos ficou errada quando a Polymarket tornou Deposit Wallet o padrão em mai/2026. |
+| EOA — **é o que `src/api/clob.ts` usa hoje** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Só funcionaria se a conta fosse EOA pura — **quase certamente não é o caso aqui** |
+| **Deposit Wallet — hipótese líder, a confirmar por bytecode** | `SignatureTypeV2.POLY_1271 = 3` | `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a wallet, não a EOA) | Se confirmado, é o que os commits antigos (`d23d8a49`, `a746c7ba`, `ead039d5`) tentaram e abandonaram cedo demais. |
 
-**O que não muda:** a chave privada (signer) continua sendo a mesma da EOA `0x18a658c6...` — ela assina em nome da Deposit Wallet via ERC-1271, não precisa de chave nova. O que muda é `funderAddress` no `createClobClient()` (`src/api/clob.ts`) e `signatureType`.
+**O que não muda independente da confirmação:** a chave privada (signer) continua sendo a mesma da EOA `0x18a658c6...`. O que muda é `funderAddress` e `signatureType` em `createClobClient()` (`src/api/clob.ts`).
+
 
 ### `DEPOSIT_WALLET_ADDRESS` do `.env` está desatualizado — trocar pelo endereço novo
 
