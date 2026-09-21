@@ -47,7 +47,7 @@ Três endereços diferentes aparecem na história do projeto, e o código hoje u
 | Token | Endereço | Onde é citado |
 |-------|----------|----------------|
 | pUSD (collateral oficial do CLOB V2 desde 28/abr/2026) | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | [docs.polymarket.com/resources/contracts](https://docs.polymarket.com/resources/contracts) |
-| USDC nativo (Polygon) | `0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D` | Recomendado pela pesquisa da Fase 1 para ler saldo da carteira EOA |
+| USDC nativo (Polygon) | `0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D` | Recomendado pela pesquisa da Fase 1 (11/mai/2026) para ler saldo da carteira EOA — **mas essa pesquisa ignora o cutover do CLOB V2 (28/abr/2026)**, que passou o collateral pra pUSD independente do signature type. Não é fato assentado, é a hipótese antiga a re-testar. |
 | USDC.e (bridged, legado) | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | **É o que está hardcoded hoje** em `src/api/clob.ts` na constante `PUSD_ADDRESS` (nome errado — nem é pUSD) |
 
 **Ponto em aberto para a próxima sessão:** a doc oficial de migração V2 diz que o collateral do CLOB agora é pUSD e que "traders API-only" precisam converter USDC.e → pUSD via `wrap()` no contrato `CollateralOnramp` (`0x93070a847efEf7F70739046A929D47a521F5B8ee`) — isso vale independente do modo de assinatura (EOA ou deposit wallet). Ou seja: mesmo com EOA correto, pode ser necessário ter pUSD (não USDC bruto) na carteira para as ordens liquidarem. Isso nunca foi testado. Ver checklist em [docs.polymarket.com/v2-migration](https://docs.polymarket.com/v2-migration).
@@ -248,7 +248,7 @@ Levantados na última sessão de trabalho, ainda presentes no código:
 - **Safety module é pulado inteiro em dry-run** (`checkBet()` retorna sempre `passed: true`) — bugs de safety ficam escondidos até ir pra produção
 - Estado de safety (perda diária, drawdown, cycle) é só em memória — reinício do bot zera os contadores de proteção
 
-Lista completa (severidade média/baixa incluída) preservada em `.planning/codebase/CONCERNS.md` antes de ser apagada — reproduzir manualmente se precisar do detalhe fino.
+O arquivo original (severidade média/baixa incluída) continua no histórico do git, não precisa reproduzir manualmente: `git show 93fc1628:.planning/codebase/CONCERNS.md`
 
 ---
 
