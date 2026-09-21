@@ -29,16 +29,28 @@ Projeto parado desde **05/jun/2026** (último commit `93fc1628`), no meio da mig
 
 ---
 
-## Decisão de Carteira: EOA + MetaMask + USDC (não deposit wallet)
+## Decisão de Carteira: MetaMask assina, mas a conta é Deposit Wallet (POLY_1271) — não EOA pura
 
-Decisão validada na pesquisa da Fase 1 (`01-RESEARCH.md`, 11/mai/2026), e é a que está implementada hoje em `src/api/clob.ts` (`SignatureTypeV2.EOA`):
+**Isso inverte o que a pesquisa da Fase 1 concluiu em 11/mai/2026.** Sequência real de eventos, reconstruída nesta sessão (21/set/2026):
 
-| Modo | Signature Type | Funder | Observação |
+1. Conectamos a EOA `0x18a658c6...` via MetaMask no polymarket.com **agora** — resultado: **conta nova** criada (`id 9843725`, pseudônimo "Satisfied-Caboose"), confirmada via `polymarket.com/api/profile/userData?address=0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (relato do usuário + verificação da API, 21/set/2026).
+2. O endereço da conta (**`0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b`**) é **diferente** da EOA (`0x18a658c6...`) que assina. Ou seja: a EOA é o **signer**, mas a **wallet** onde o pUSD/posições ficam é outro endereço — exatamente o modelo `Deposit Wallet` que `docs.polymarket.com/trading/wallets-auth` descreve como **padrão desde 4/mai/2026**.
+3. Checagem on-chain: `eth_getCode` em `0xA53EE08...` retorna vazio — a wallet ainda não foi deployada de verdade (só reservada/computada), o que é normal nesse modelo (deploy costuma acontecer no primeiro uso/depósito, não na conexão).
+
+**Isso significa que a configuração atual do código está errada pra essa conta:**
+
+| Modo | Signature Type (`@polymarket/clob-client-v2`) | Funder | Situação |
 |------|----------------|--------|------------|
-| **EOA (usado)** | `0` | Igual ao signer (endereço da MetaMask) | Precisa de USDC + MATIC (gas) na própria carteira. Fluxo mais simples, sem wrapping ERC-1271. |
-| Deposit wallet (descartado) | `3` (`POLY_1271`) | Endereço separado, validado via ERC-1271 | Testado antes (commits `d23d8a49`, `a746c7ba`, `ead039d5`) e abandonado a favor de EOA. |
+| EOA — **é o que `src/api/clob.ts` usa hoje** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Só funcionaria se a conta fosse EOA pura — **não é o caso aqui** |
+| **Deposit Wallet — o que essa conta realmente precisa** | `SignatureTypeV2.POLY_1271 = 3` ("EIP1271 signatures signed by smart contracts... smart contract wallets or vaults") | `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a wallet, não a EOA) | É exatamente o que os commits antigos (`d23d8a49`, `a746c7ba`, `ead039d5`) tentaram e abandonaram — **a decisão de abandonar estava errada**, ou pelo menos ficou errada quando a Polymarket tornou Deposit Wallet o padrão em mai/2026. |
 
-**O "bate e volta" nos commits antigos foi essa indecisão entre os dois modos** — já está resolvida: manter EOA + MetaMask + USDC.
+**O que não muda:** a chave privada (signer) continua sendo a mesma da EOA `0x18a658c6...` — ela assina em nome da Deposit Wallet via ERC-1271, não precisa de chave nova. O que muda é `funderAddress` no `createClobClient()` (`src/api/clob.ts`) e `signatureType`.
+
+### `DEPOSIT_WALLET_ADDRESS` do `.env` está desatualizado — trocar pelo endereço novo
+
+O valor atual do `.env` (`0x723b9273D0E7F82e87552A441Fe5772f101488e3`) é a conta do **Google/Magic Link** ("Untidy-Mile", id `7629704`, criada 20/abr/2026) — confirmado via `polymarket.com/api/profile/userData` e via bytecode on-chain (clone EIP-1167 apontando pra `0x44e999d5c2f66ef0861317f9a4805ac2e90aeb4f`, a Proxy Factory da própria Polymarket). Login por Google passa por Magic Link, que gerencia a chave por trás — **não existe private key exportável dali**, o bot nunca teria como assinar por essa conta, e ela está zerada de qualquer forma. Descartar esse endereço do `.env` e trocar por `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a conta nova, ligada à EOA que o bot já controla).
+
+Tentativa de calcular esse endereço via `deriveProxyWallet()` da lib já instalada (`@polymarket/builder-relayer-client`) deu um terceiro endereço (`0xA9a78a08...`) que não bate com nada — confirmado inconclusivo por bug documentado da lib ([Polymarket/rs-clob-client#272](https://github.com/Polymarket/rs-clob-client/issues/272), hash de init code desatualizado). **A fonte de verdade é sempre a API/UI da Polymarket, não cálculo local.**
 
 ### Estado real da carteira (confirmado on-chain, 21/set/2026)
 
@@ -51,8 +63,6 @@ Endereço EOA derivado do `PRIVATE_KEY` atual: `0x18a658c68cb3b21a0730F09703cF42
 | **USDC nativo (Circle)** | `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359` | **≈ 9.21 — é aqui que o dinheiro real está** |
 | pUSD | `0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB` | 0 |
 
-`DEPOSIT_WALLET_ADDRESS` legado (`0x723b9273D0E7F82e87552A441Fe5772f101488e3`): **não é morto, é uma conta Polymarket real** — confirmado via `polymarket.com/api/profile/userData`: conta id `7629704`, pseudônimo "Untidy-Mile", criada em 20/abr/2026, `proxyWallet` (tipo Proxy Wallet, não Deposit Wallet). Bytecode on-chain confirma: clone EIP-1167 apontando pra `0x44e999d5c2f66ef0861317f9a4805ac2e90aeb4f` — a implementação de Proxy Factory da própria Polymarket ([docs.polymarket.com/developers/proxy-wallet](https://docs.polymarket.com/developers/proxy-wallet): "1 of 1 multisig... controlled/owned by the accessing EOA, either MetaMask ou MagicLink"). **Essa é a conta que você sempre logou via Google** — Google login passa pelo Magic Link, que gerencia uma chave por trás sem expor private key nenhuma. Saldo zero em tudo (USDC.e, USDC nativo, pUSD).
-**Se a EOA `0x18a658c6...` já era dona de `0x723b9273...` via Proxy Wallet, checável e descartado:** `userData?address=` busca pelo endereço do **proxyWallet**, não pelo signer — então o `null` pra `0x18a658c6...` só prova que não existe conta *nesse* endereço, não que a EOA nunca foi usada como signer de outro proxy. Rodei `deriveProxyWallet(0x18a658c6..., proxyFactory)` com a lib já instalada (`@polymarket/builder-relayer-client`) e o resultado (`0xA9a78a08f2d7dA02b3E531E114dD425D139134a4`) **não bate** com `0x723b9273...` — mas isso sozinho é inconclusivo (há um bug documentado, [Polymarket/rs-clob-client#272](https://github.com/Polymarket/rs-clob-client/issues/272), de `PROXY_INIT_CODE_HASH` desatualizado dando endereço errado). **Confirmação real:** usuário conectou a EOA via MetaMask no site (21/set/2026) e a Polymarket criou **conta nova**, não logou na "Untidy-Mile" — isso fecha a dúvida de vez, empiricamente, independente de qualquer cálculo.
 
 **Correção sobre a pesquisa da Fase 1:** o endereço de "USDC nativo" que ela recomendava (`0x3c499c542cEF5E6931f0FE6561f6c0D3EaB0f85D`) **não existe como contrato na Polygon** (`eth_getCode` retorna vazio, confirmado em duas RPCs) — a IA antiga alucinou os últimos bytes do endereço (mesmo prefixo `0x3c499c542cEF5E...`, sufixo inventado). O endereço certo do USDC nativo da Circle é `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359`, confirmado on-chain com o saldo real acima.
 
@@ -288,14 +298,15 @@ O arquivo original (severidade média/baixa incluída) continua no histórico do
 
 ## Próximos Passos (ordem sugerida)
 
-1. **Fazer o depósito único via Bridge API** (não é código, é uma chamada/ação pontual): `POST https://bridge.polymarket.com/deposit` com o endereço `0x18a658c6...`, pegar o bridge address tipo `evm`, mandar os ~$9.21 em USDC nativo (já na Polygon, `0x3c499c...c3359`) pra esse endereço. A Polymarket credita pUSD automaticamente — sem swap manual em DEX, sem chamar `wrap()` na mão. Mínimo de depósito na Polygon é $2, tranquilo.
-2. **Corrigir `getUSDCBalance()` em `src/api/clob.ts`**: depois do depósito, o saldo de bankroll tem que vir de **pUSD** (`0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB`), não de `PUSD_ADDRESS` (que hoje aponta pra USDC.e, que nunca teve saldo nesta carteira). Renomear a constante enquanto mexe.
-3. **Trocar a lista de RPC fallback em `src/api/http.ts`** pelas que responderam de verdade: `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org` — tirar `polygon.llamarpc.com` do topo e `rpc.ankr.com` da lista (exige key agora).
-4. **Adicionar guard de geoblock no startup**: checar `GET https://polymarket.com/api/geoblock` a partir do IP real de deploy; abortar/alertar via Telegram se `blocked: true` (Brasil está em close-only tanto no frontend quanto na API). Time já usa proxy pra isso — validar que o proxy configurado responde num país fora da lista de restrição.
-5. Atualizar `@polymarket/clob-client-v2` de `1.0.3-canary.0` para `1.1.0` estável; remover `@polymarket/builder-signing-sdk` (obsoleto pós-V2, builder auth virou campo `builderCode` na ordem).
-6. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
-7. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
-8. Só depois disso: conectar `research/` e `ai/` ao fluxo de decisão (hoje o bot decide só por preço/liquidez).
+1. **Fazer o depósito único via Bridge API pro endereço certo**: `POST https://bridge.polymarket.com/deposit` com `address: 0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a conta Deposit Wallet nova, **não** a EOA `0x18a658c6...`), pegar o bridge address tipo `evm`, mandar os ~$9.21 em USDC nativo (já na Polygon, `0x3c499c...c3359`) pra esse endereço. Mínimo $2, tranquilo. Testar com o mínimo primeiro e confirmar o pUSD aparecendo em `0xA53EE08...` antes de mandar o resto.
+2. **Trocar `createClobClient()` em `src/api/clob.ts` de EOA pra Deposit Wallet**: `signatureType: SignatureTypeV2.POLY_1271` (não `EOA`), `funderAddress: '0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b'` (não mais igual ao signer). O `walletClient` (assinatura) continua o mesmo, só o funder muda. Atualizar `DEPOSIT_WALLET_ADDRESS` no `.env` pra esse valor novo.
+3. **Corrigir `getUSDCBalance()` em `src/api/clob.ts`**: depois do depósito, o saldo de bankroll tem que vir de **pUSD** (`0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB`) **na Deposit Wallet** (`0xA53EE08...`), não `PUSD_ADDRESS` (que hoje aponta pra USDC.e e além disso lê a EOA errada). Renomear a constante enquanto mexe.
+4. **Trocar a lista de RPC fallback em `src/api/http.ts`** pelas que responderam de verdade: `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org` — tirar `polygon.llamarpc.com` do topo e `rpc.ankr.com` da lista (exige key agora).
+5. **Adicionar guard de geoblock no startup**: checar `GET https://polymarket.com/api/geoblock` a partir do IP real de deploy; abortar/alertar via Telegram se `blocked: true` (Brasil está em close-only tanto no frontend quanto na API). Time já usa proxy pra isso — validar que o proxy configurado responde num país fora da lista de restrição.
+6. Atualizar `@polymarket/clob-client-v2` de `1.0.3-canary.0` para `1.1.0` estável; remover `@polymarket/builder-signing-sdk` (obsoleto pós-V2, builder auth virou campo `builderCode` na ordem).
+7. Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.
+8. Terminar o checkpoint de teste real (antigo `01-03`): aposta pequena, confirmar `txHash` no Polygonscan, validar notificação no Telegram.
+9. Só depois disso: conectar `research/` e `ai/` ao fluxo de decisão (hoje o bot decide só por preço/liquidez).
 
 ---
 
