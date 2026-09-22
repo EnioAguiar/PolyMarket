@@ -19,6 +19,7 @@ import { evaluateMarketForWebSocket, handleBestBidAskUpdate, handleMarketResolve
 import type { Config, SafetyState } from './types/index.js';
 import { SafetyModule } from './safety/index.js';
 import { createClobClient, getPUSDBalance } from './api/clob.js';
+import { checkGeoblock } from './api/geoblock.js';
 import { createCycleManager } from './betting/index.js';
 import type { CycleManager } from './betting/index.js';
 import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram, updateBotStatus } from './api/telegram.js';
@@ -193,7 +194,20 @@ async function main(): Promise<void> {
       logger.info({ msg: 'Telegram bot disabled (no token)' });
     }
 
-    if (!config.dryRun) {
+    let geoblocked = false;
+    try {
+      const geoblock = await checkGeoblock();
+      logger.info({ geoblock }, 'Geoblock check');
+      if (geoblock.blocked) {
+        logger.error({ geoblock }, 'Geoblocked — new orders will be rejected by the CLOB. Trading disabled for this run.');
+        geoblocked = true;
+      }
+    } catch (error) {
+      logger.warn({ error }, 'Geoblock check failed — proceeding without a definitive answer (will surface as order rejections if actually blocked)');
+    }
+
+
+    if (!config.dryRun && !geoblocked) {
       clobClient = await createClobClient(config);
       const realBalance = await getPUSDBalance();
       safetyModule = new SafetyModule(config, initialState, realBalance);
