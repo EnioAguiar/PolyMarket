@@ -173,6 +173,46 @@ describe('handleMarketResolved PnL computation', () => {
 
     expect(recordTrade).toHaveBeenCalledWith(100, 999);
   });
+
+  it('follows the asset-ID comparison even when it disagrees with the outcome string (ID match, string mismatch -> still won)', async () => {
+    const cycleManager = createCycleManager();
+    cycleManager.addBet({ marketId: 'm6', assetId: 'a6', side: 'YES', odds: 0.5, size: 100 });
+
+    const recordTrade = vi.fn();
+    const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
+    vi.mocked(getPUSDBalance).mockResolvedValue(700);
+
+    // winningOutcome ('No') would make the OLD case-insensitive string
+    // comparison ('no' !== 'yes') call this a loss, but winningAssetId
+    // ('a6') matches the bet's own assetId -- the asset-ID comparison must
+    // win this disagreement and resolve the bet as won. This pins the
+    // ternary's priority: if the branches were ever swapped back to
+    // string-primary, this test would fail (recordTrade(-100, ...) instead
+    // of the expected positive PnL).
+    await handleMarketResolved('m6', 'No', 'a6', cycleManager, fakeSafetyModule, silentLogger);
+
+    expect(recordTrade).toHaveBeenCalledWith(100, 700);
+  });
+
+  it('follows the asset-ID comparison even when it disagrees with the outcome string (ID mismatch, string match -> still lost)', async () => {
+    const cycleManager = createCycleManager();
+    cycleManager.addBet({ marketId: 'm7', assetId: 'a7', side: 'YES', odds: 0.5, size: 100 });
+
+    const recordTrade = vi.fn();
+    const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
+    vi.mocked(getPUSDBalance).mockResolvedValue(300);
+
+    // winningOutcome ('Yes') would make the OLD case-insensitive string
+    // comparison ('yes' === 'yes') call this a win, but winningAssetId
+    // ('a-different') does not match the bet's assetId ('a7') -- the
+    // asset-ID comparison must win this disagreement and resolve the bet
+    // as lost. Inverse pin of the test above: if the ternary's branches
+    // were ever swapped, this would fail (recordTrade(100, ...) instead of
+    // the expected -size PnL).
+    await handleMarketResolved('m7', 'Yes', 'a-different', cycleManager, fakeSafetyModule, silentLogger);
+
+    expect(recordTrade).toHaveBeenCalledWith(-100, 300);
+  });
 });
 
 describe('evaluateMarketForWebSocket mutex release on early-return paths', () => {
