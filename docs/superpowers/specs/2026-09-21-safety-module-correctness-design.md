@@ -274,14 +274,27 @@ dryRun: true  # true = log decisions only, false = execute real trades. MUST be 
 
 Add a comment to `README.md`'s deploy section (if one doesn't already note this) that production deploys must explicitly override this.
 
-### 6. Persist safety state across restarts
+### 6. Persist safety state across restarts — including `peakBankroll`, not just `dailyLoss`/`isKillSwitchActive`
 
-**File:** new `src/safety/persistence.ts`
+**Files:** new `src/safety/persistence.ts`; modify `src/types/index.ts` (`SafetyState`), `src/safety/drawdown.ts` (`DrawdownTracker`), `src/safety/index.ts` (`SafetyModule.getState()`, `recordTrade()`, `resetKillSwitch()`)
 
-Simplest option that survives a same-container restart (explicitly not surviving a Railway redeploy onto a fresh filesystem unless a volume is mounted — document this limitation, don't oversell it):
+**`DrawdownTracker` holds its own `peakBankroll` as a private constructor-seeded field (`drawdown.ts:10,15`), entirely separate from `SafetyState`.** Persisting only `dailyLoss`/`totalDrawdown`/`isKillSwitchActive` (the original draft of this section) would NOT fix the restart bug for the drawdown kill switch specifically: `DrawdownTracker`'s constructor always sets `this.peakBankroll = initialBankroll` (the *current* real balance read at startup), regardless of what the true historical peak was. After a restart, a bot sitting at $90 with a true historical peak of $100 (10% drawdown, not yet at a 15% kill switch) would restart with `peakBankroll = $90` — collapsing the peak to the current balance and handing the bot a *fresh* 15% allowance to lose from $90, silently erasing the 10% of drawdown "already spent." This must be fixed in the same task as the rest of persistence, not treated as a separate concern — a persistence fix that only covers `dailyLoss`/`isKillSwitchActive` ships under a "restart-safe" banner while leaving the drawdown kill switch exactly as resettable as before.
 
+**Add `peakBankroll` to `SafetyState`** (`src/types/index.ts`):
 ```typescript
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+export interface SafetyState {
+  dailyLoss: number;
+  totalDrawdown: number;
+  isKillSwitchActive: boolean;
+  peakBankroll?: number; // optional: absent in state files written before this fix, or on first run
+  lastTradeTime?: Date;
+}
+```
+
+**`src/safety/persistence.ts`:**
+```typescript
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { SafetyState } from '../types/index.js';
 
 const STATE_FILE = process.env.SAFETY_STATE_FILE || 'data/safety-state.json';
@@ -301,18 +314,53 @@ export function loadSafetyState(): SafetyState {
 }
 
 export function saveSafetyState(state: SafetyState): void {
+  mkdirSync(dirname(STATE_FILE), { recursive: true });
   writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), 'utf-8');
 }
 ```
 
-Create the `data/` directory if it doesn't exist (`mkdirSync(dirname(STATE_FILE), { recursive: true })` before the write, and guard `loadSafetyState` the same way isn't needed since `existsSync` false already short-circuits).
+**`src/safety/drawdown.ts`'s `DrawdownTracker` — prefer the restored peak over the current balance:**
+```typescript
+constructor(config: SafetyModuleConfig, initialState: SafetyState, initialBankroll: number) {
+  this.config = config;
+  this.state = initialState;
+  this.peakBankroll = initialState.peakBankroll && initialState.peakBankroll > initialBankroll
+    ? initialState.peakBankroll
+    : initialBankroll;
+}
+```
+(A restored peak lower than the current real balance is impossible under correct operation — the peak only ever grows — but falling back to `initialBankroll` in that case is a safe default rather than trusting a stale/corrupt lower number.)
 
-Wire it in:
+`updatePeak()` must write the new peak back into the shared `state` object so it round-trips through `getState()`/persistence — it currently only updates the local `this.peakBankroll` field:
+```typescript
+updatePeak(currentBankroll: number): void {
+  if (currentBankroll > this.peakBankroll) {
+    this.peakBankroll = currentBankroll;
+    this.state.peakBankroll = this.peakBankroll;
+  }
+}
+```
+
+**`src/safety/index.ts`'s `SafetyModule.getState()` — expose the peak in the snapshot:**
+```typescript
+getState(): SafetyState {
+  return {
+    dailyLoss: this.dailyLossTracker.getDailyLoss(),
+    totalDrawdown: this.drawdownTracker.getDrawdown(this.bankroll),
+    isKillSwitchActive: this.drawdownTracker.isKillSwitchActive(),
+    peakBankroll: this.drawdownTracker.getPeakBankroll(),
+  };
+}
+```
+Add a `getPeakBankroll(): number { return this.peakBankroll; }` getter to `DrawdownTracker` (it doesn't currently expose this field at all — confirmed by reading the full class).
+
+Wire persistence in:
 - `src/index.ts` and `src/main.ts`: replace the hardcoded `const initialState: SafetyState = { dailyLoss: 0, ... }` literal with `const initialState: SafetyState = loadSafetyState();`.
 - `src/safety/index.ts`'s `recordTrade()`: after updating both trackers, call `saveSafetyState(this.getState())`.
 - `src/safety/index.ts`'s `resetKillSwitch()`: after resetting, call `saveSafetyState(this.getState())` (an operator resetting the kill switch should persist that decision too).
 
 Add `data/` to `.gitignore` (runtime state, not source).
+
 
 ### 7. Geoblock guard: alert via Telegram
 
@@ -336,7 +384,7 @@ Keep the existing "disable trading, keep the process running" behavior (consiste
 - **`daily-loss.ts`'s sign-convention fix (Design §1a) MUST have a unit test that would have caught the original bug**: record a loss whose magnitude exceeds `dailyLossLimitPct * bankroll`, then assert `checkDailyLoss()` returns `passed: false`. A test that only checks `dailyLoss`'s stored numeric value without calling `checkDailyLoss()` would not have caught the original bug (the stored value updated fine before this fix — the comparison was what was broken) and does not satisfy this requirement. Also test that `recordGain()` reduces `dailyLoss` by exactly the gain amount (not wiping it to zero) when it doesn't cross zero.
 - `/pause`/`/resume`: manual verification only (Telegram integration has no test harness in this project).
 - Balance check / tx confirmation: manual verification with a real small order (reuse the pattern from sub-project 1's validation — this project has ~$2.26 pUSD remaining; a balance-check-only smoke test, e.g. attempting to bet more than the balance, requires no real spend and should be the primary test).
-- Persistence: unit test `loadSafetyState`/`saveSafetyState` round-trip with a temp file path (override `SAFETY_STATE_FILE`).
+- Persistence: unit test `loadSafetyState`/`saveSafetyState` round-trip with a temp file path (override `SAFETY_STATE_FILE`). **MUST include `peakBankroll` in the round-trip** — construct a `DrawdownTracker` with a saved state whose `peakBankroll` exceeds a lower `initialBankroll`, and assert the tracker uses the restored peak (e.g. via `getDrawdown()`/`getPeakBankroll()`), not the lower current balance. A test that only round-trips `dailyLoss`/`isKillSwitchActive` does not satisfy this.
 - `config.yaml` default: `grep '^dryRun:' config.yaml` should show `true`.
 
 ## Success Criteria
@@ -349,6 +397,7 @@ Keep the existing "disable trading, keep the process running" behavior (consiste
 - [ ] `placeMarketOrder`/`placeLimitOrder` both check `getPUSDBalance()` against the requested amount before submitting, and both attempt `waitForTransactionReceipt` on a returned tx hash before reporting a final `success: true`.
 - [ ] `config.yaml`'s `dryRun` is `true`.
 - [ ] `src/safety/persistence.ts` exists; `initialState` in both `src/index.ts` and `src/main.ts` is loaded via `loadSafetyState()`, not a hardcoded literal; `recordTrade()` and `resetKillSwitch()` both persist after mutating state.
+- [ ] `SafetyState` includes `peakBankroll`; `DrawdownTracker`'s constructor prefers a restored `peakBankroll` over `initialBankroll` when the restored value is higher; `updatePeak()` writes the new peak back into `state.peakBankroll`; a unit test proves the peak survives a simulated restart (lower `initialBankroll`, higher restored `peakBankroll` in the loaded state).
 - [ ] `daily-loss.ts`'s `recordLoss()` decrements `dailyLoss` (moves it negative); a unit test records a loss past the configured limit and asserts `checkDailyLoss().passed === false`; `recordGain()` moves `dailyLoss` toward zero by the gain amount rather than flooring it to zero outright when the gain doesn't fully offset the accumulated loss.
 - [ ] The geoblock guard calls `notifyError()` when blocked.
 - [ ] `npm run build && npx vitest run` passes with the new tests included.

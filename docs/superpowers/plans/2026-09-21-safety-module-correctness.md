@@ -11,7 +11,7 @@
 - `cycleManager.addBet()` and `SafetyModule.recordTrade()` are currently defined but never called anywhere in `src/` (confirmed by grep) — this is the load-bearing bug this plan exists to fix. Any task touching `src/websocket/integration.ts` or `src/index.ts`'s WS event handling MUST NOT leave these still uncalled.
 - **`src/safety/daily-loss.ts` has an independent sign-convention bug that wiring `recordTrade()` alone does NOT fix**: `recordLoss()` accumulates `dailyLoss` positively, but `checkDailyLoss()` compares against a negative threshold (`dailyLoss <= -dailyLossLimit`) and `recordGain()` assumes a negative accumulator too — so even after Task 1's wiring lands, the daily-loss limit would still be mathematically incapable of ever tripping. This MUST be fixed in Task 1, in the same commit as the wiring — see spec Design §1a. Task 1 is not complete without it, and its own test coverage (Step 6) MUST include a test that records a loss past the limit and asserts `checkDailyLoss().passed === false` — a test that only inspects the stored `dailyLoss` value without calling `checkDailyLoss()` does not satisfy this.
 - The market mutex (`CycleManager`/`MarketMutex`) only releases via `resolveBet()`, which requires the bet to exist in `state.bets` first — it currently never does. A market must stay locked ONLY while it has a real pending bet; every other exit path (no liquidity, safety check failed, dry run, order rejected, etc.) MUST release the lock immediately, not wait for a resolution event that will never come for a market with no open position.
-- `SafetyState` (`{ dailyLoss, totalDrawdown, isKillSwitchActive }`) is shared by reference between `DailyLossTracker` and `DrawdownTracker` (both store the same object passed into their constructors, neither clones it) — persistence only needs to read `SafetyModule.getState()`'s snapshot, not manage each tracker's internal reference separately.
+- `SafetyState` (`{ dailyLoss, totalDrawdown, isKillSwitchActive }`) is shared by reference between `DailyLossTracker` and `DrawdownTracker` (both store the same object passed into their constructors, neither clones it) — persistence only needs to read `SafetyModule.getState()`'s snapshot, not manage each tracker's internal reference separately. **`DrawdownTracker`'s `peakBankroll` is NOT part of `SafetyState` today and must be added to it (Task 5)** — persisting only `dailyLoss`/`isKillSwitchActive` without `peakBankroll` would leave the drawdown kill switch resettable on every restart, defeating Task 5's own purpose.
 - Do not implement `SafetyModule.forceKillSwitch()` — delete the calls to it in `telegram.ts` instead. `isPaused` is already the correct, working mechanism for stopping new bets; conflating it with the automatic drawdown kill switch is the bug, not the fix.
 - `placeMarketOrder`'s FOK orders do not currently populate `OrderExecutionResult.executedPrice` (verify this hasn't changed since the spec was written — if it has, prefer the real executed price over the pre-trade mid-price for PnL math).
 - No new test framework or mocking beyond plain Vitest, matching this project's existing convention.
@@ -383,18 +383,35 @@ would go unnoticed without someone watching logs."
 
 ---
 
-### Task 5: Persist safety state across restarts
+### Task 5: Persist safety state across restarts — including `peakBankroll`
 
 **Files:**
+- Modify: `src/types/index.ts` (`SafetyState` gains optional `peakBankroll`)
 - Create: `src/safety/persistence.ts`
+- Modify: `src/safety/drawdown.ts` (`DrawdownTracker` — prefer restored peak, add `getPeakBankroll()`, `updatePeak()` writes back into `state`)
+- Modify: `src/safety/index.ts` (`getState()` exposes `peakBankroll`; `recordTrade()`, `resetKillSwitch()` persist after mutating)
 - Modify: `src/index.ts` (replace hardcoded `initialState` literal)
 - Modify: `src/main.ts` (same)
-- Modify: `src/safety/index.ts` (`recordTrade()`, `resetKillSwitch()` persist after mutating)
 - Modify: `.gitignore` (add `data/`)
 
-**Interfaces:** `export function loadSafetyState(): SafetyState` and `export function saveSafetyState(state: SafetyState): void` from `src/safety/persistence.ts`.
+**Interfaces:** `export function loadSafetyState(): SafetyState` and `export function saveSafetyState(state: SafetyState): void` from `src/safety/persistence.ts`; `DrawdownTracker` gains `getPeakBankroll(): number`.
 
-- [ ] **Step 1: Create `src/safety/persistence.ts`**
+Read spec Design §6 in full before starting — `DrawdownTracker` holds `peakBankroll` as a field entirely separate from `SafetyState`, and persisting only `dailyLoss`/`isKillSwitchActive` would leave the drawdown kill switch just as resettable as before. This task is not complete without the `peakBankroll` fix — it is not a nice-to-have addition to persistence, it's the part of persistence that makes the drawdown kill switch survive a restart at all.
+
+- [ ] **Step 1: Add `peakBankroll` to `SafetyState`**
+
+In `src/types/index.ts`:
+```typescript
+export interface SafetyState {
+  dailyLoss: number;
+  totalDrawdown: number;
+  isKillSwitchActive: boolean;
+  peakBankroll?: number;
+  lastTradeTime?: Date;
+}
+```
+
+- [ ] **Step 2: Create `src/safety/persistence.ts`**
 
 ```typescript
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -421,9 +438,53 @@ export function saveSafetyState(state: SafetyState): void {
 }
 ```
 
-- [ ] **Step 2: Wire `loadSafetyState()` into both entry points**
+- [ ] **Step 3: Fix `DrawdownTracker` to prefer a restored peak over the current balance**
 
-In `src/index.ts` and `src/main.ts`, replace every occurrence of the hardcoded literal:
+In `src/safety/drawdown.ts`, change the constructor:
+```typescript
+constructor(config: SafetyModuleConfig, initialState: SafetyState, initialBankroll: number) {
+  this.config = config;
+  this.state = initialState;
+  this.peakBankroll = initialState.peakBankroll && initialState.peakBankroll > initialBankroll
+    ? initialState.peakBankroll
+    : initialBankroll;
+}
+```
+
+Change `updatePeak()` to write the new peak back into the shared state object (it currently only updates the local field):
+```typescript
+updatePeak(currentBankroll: number): void {
+  if (currentBankroll > this.peakBankroll) {
+    this.peakBankroll = currentBankroll;
+    this.state.peakBankroll = this.peakBankroll;
+  }
+}
+```
+
+Add a new getter (this class does not currently expose `peakBankroll` at all):
+```typescript
+getPeakBankroll(): number {
+  return this.peakBankroll;
+}
+```
+
+- [ ] **Step 4: Expose `peakBankroll` in `SafetyModule.getState()`**
+
+In `src/safety/index.ts`:
+```typescript
+getState(): SafetyState {
+  return {
+    dailyLoss: this.dailyLossTracker.getDailyLoss(),
+    totalDrawdown: this.drawdownTracker.getDrawdown(this.bankroll),
+    isKillSwitchActive: this.drawdownTracker.isKillSwitchActive(),
+    peakBankroll: this.drawdownTracker.getPeakBankroll(),
+  };
+}
+```
+
+- [ ] **Step 5: Wire `loadSafetyState()` into both entry points**
+
+In `src/index.ts` and `src/main.ts`, replace the hardcoded literal:
 ```typescript
 const initialState: SafetyState = {
   dailyLoss: 0,
@@ -435,9 +496,9 @@ with:
 ```typescript
 const initialState: SafetyState = loadSafetyState();
 ```
-Add the import `import { loadSafetyState } from './safety/persistence.js';` to both files. Note `src/index.ts` constructs `initialState` in more than one branch (confirmed: at least twice in the current file, lines ~179 and inside the dry-run/else branches) — replace all of them, not just the first.
+Add the import `import { loadSafetyState } from './safety/persistence.js';` to both files. `src/index.ts` has exactly one such literal (confirmed at line 179, reused at 3 call sites further down `main()`) — replacing that single declaration covers all 3 uses automatically since they all reference the same `initialState` variable. `src/main.ts` has one literal (line 33), same treatment.
 
-- [ ] **Step 3: Persist after every state mutation in `SafetyModule`**
+- [ ] **Step 6: Persist after every state mutation in `SafetyModule`**
 
 In `src/safety/index.ts`, add `import { saveSafetyState } from './persistence.js';`. At the end of `recordTrade()`:
 ```typescript
@@ -454,30 +515,43 @@ resetKillSwitch(): void {
 }
 ```
 
-- [ ] **Step 4: Add `data/` to `.gitignore`**
+- [ ] **Step 7: Add `data/` to `.gitignore`**
 
 Append `data/` if not already present.
 
-- [ ] **Step 5: Unit test the persistence round-trip**
+- [ ] **Step 8: Unit test the persistence round-trip, including `peakBankroll` survival**
 
-New test file `tests/safety-persistence.test.ts`: set `process.env.SAFETY_STATE_FILE` to a temp path (e.g. via `os.tmpdir()`), call `saveSafetyState` with a known state, call `loadSafetyState`, assert equality. Also test that `loadSafetyState` returns the zeroed default when the file doesn't exist, and when it contains invalid JSON. Clean up the temp file after the test.
+New test file `tests/safety-persistence.test.ts`:
+- `loadSafetyState`/`saveSafetyState` round-trip with a temp file path (override `SAFETY_STATE_FILE`), including a state with `peakBankroll` set.
+- `loadSafetyState` returns the zeroed default when the file doesn't exist, and when it contains invalid JSON.
+- **Required**: construct a `DrawdownTracker` with an `initialState` whose `peakBankroll` (e.g. `100`) exceeds a lower `initialBankroll` (e.g. `90`, simulating a restart after a loss) — assert `getPeakBankroll()` returns `100`, not `90`. This is the test that would have caught the original gap; a test that only round-trips `dailyLoss`/`isKillSwitchActive` does not satisfy this requirement.
+- Clean up the temp file after each test.
 
-- [ ] **Step 6: Verify build and tests**
+- [ ] **Step 9: Verify build and tests**
 
 Run: `npm run build && npx vitest run`
 Expected: build passes, new tests pass, all pre-existing tests still pass.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add src/safety/persistence.ts src/index.ts src/main.ts src/safety/index.ts .gitignore tests/safety-persistence.test.ts
-git commit -m "fix(safety): persist safety state to disk, survives same-container restarts
+git add src/types/index.ts src/safety/persistence.ts src/safety/drawdown.ts src/safety/index.ts src/index.ts src/main.ts .gitignore tests/safety-persistence.test.ts
+git commit -m "fix(safety): persist safety state to disk including peakBankroll, survives same-container restarts
 
 initialState was always the hardcoded zeroed literal — a restart silently
-reset every counter, including an active kill switch. Note this survives
-a same-container restart but not necessarily a fresh Railway deploy onto
-a new filesystem unless a persistent volume is mounted at data/."
+reset every counter, including an active kill switch. Critically,
+DrawdownTracker's peakBankroll was never part of SafetyState at all, so
+even naive dailyLoss/isKillSwitchActive persistence would have left the
+drawdown kill switch collapsing its peak to the current balance on every
+restart, silently erasing already-accumulated drawdown. Fixed by adding
+peakBankroll to SafetyState and having DrawdownTracker prefer the restored
+value over the current balance.
+
+Note this survives a same-container restart but not necessarily a fresh
+Railway deploy onto a new filesystem unless a persistent volume is
+mounted at data/."
 ```
+
 
 ---
 
