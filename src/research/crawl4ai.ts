@@ -125,7 +125,13 @@ export class Crawl4AIWebAdapter implements ResearchSource {
  * Fetch the full markdown text of a single article/page URL via crawl4ai.
  * No LLM extraction strategy — plain markdown conversion, since Jev (not
  * crawl4ai) does the semantic judgment downstream.
+ *
+ * Truncated to MAX_ARTICLE_TEXT_LENGTH characters: this text flows into
+ * Jev's `state` field (32k token limit), so an unbounded article could
+ * blow past that limit or needlessly inflate cost.
  */
+const MAX_ARTICLE_TEXT_LENGTH = 5000;
+
 export async function fetchArticleText(url: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [
@@ -156,7 +162,8 @@ export async function fetchArticleText(url: string): Promise<string> {
           reject(new Error(`fetchArticleText failed: ${result.error}`));
           return;
         }
-        resolve(result.markdown || '');
+        const markdown = result.markdown || '';
+        resolve(markdown.slice(0, MAX_ARTICLE_TEXT_LENGTH));
       } catch (err) {
         reject(new Error(`Failed to parse fetchArticleText output: ${err}`));
       }

@@ -63,4 +63,18 @@ describe('fetchArticleText', () => {
 
     await expect(resultPromise).rejects.toThrow('Crawl failed: timeout');
   });
+
+  it('truncates article text to the Jev-safe cap', async () => {
+    const fakeProcess = makeFakeProcess();
+    vi.mocked(spawn).mockReturnValue(fakeProcess as unknown as ChildProcess);
+
+    const hugeMarkdown = 'a'.repeat(210_000);
+    const resultPromise = fetchArticleText('https://example.com/huge-article');
+    fakeProcess.stdout.emit('data', Buffer.from(JSON.stringify({ markdown: hugeMarkdown, error: null })));
+    fakeProcess.emit('close', 0);
+
+    const text = await resultPromise;
+    expect(text.length).toBe(5000);
+    expect(text).toBe(hugeMarkdown.slice(0, 5000));
+  });
 });

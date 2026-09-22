@@ -27,7 +27,7 @@ async def fetch_article(url: str) -> dict:
     )
 
     run_config = CrawlerRunConfig(
-        page_timeout=60000,
+        page_timeout=20000,
         remove_overlay_elements=True,
         word_count_threshold=10,
         cache_mode="bypass",
