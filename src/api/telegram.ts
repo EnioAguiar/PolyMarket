@@ -1,5 +1,6 @@
 import { Telegraf } from 'telegraf';
 import pino from 'pino';
+import { getPUSDBalance } from './clob.js';
 
 const logger = pino({ level: 'info' });
 
@@ -90,15 +91,22 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
 
   bot.command('balance', async (ctx) => {
     try {
-      const { getPUSDBalance } = await import('./clob.js');
       const balance = await getPUSDBalance();
-      const bankrollUsagePct = 50;
-      const effectiveBankroll = balance * (bankrollUsagePct / 100);
+      // Real SafetyModule uses the full real balance as bankroll (no
+      // separate "usage %" fraction -- that concept was dead/hardcoded
+      // here, disconnected from config.yaml, and never read by the real
+      // trading path; SafetyModule.bankroll = initialBankroll = 100% of
+      // realBalance). Report the real maxPositionSizePct from the live
+      // SafetyModule instance instead (review finding, 2026-09-22).
+      const maxPositionSizePct = safetyModuleRef?.getMaxPositionSizePct?.() ?? null;
+      const maxBetLine =
+        maxPositionSizePct !== null
+          ? `Max bet: $${(balance * maxPositionSizePct).toFixed(2)} (${(maxPositionSizePct * 100).toFixed(0)}% of balance, per config.yaml)`
+          : `Max bet: unavailable (safety module not initialized yet)`;
       ctx.reply(
         `💰 *Wallet Balance*\n\n` +
         `Real: $${balance.toFixed(2)} pUSD\n` +
-        `Using: ${bankrollUsagePct}% ($${effectiveBankroll.toFixed(2)})\n` +
-        `Max bet: $${(effectiveBankroll * 0.08).toFixed(2)}`
+        `${maxBetLine}`
       );
     } catch (error) {
       logger.error({ error }, 'Error in /balance command');

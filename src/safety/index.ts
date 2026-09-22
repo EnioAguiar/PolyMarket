@@ -79,6 +79,15 @@ export class SafetyModule {
   }
 
   /**
+   * Get the configured max position size fraction (e.g. 0.10 = 10% of
+   * bankroll per bet). Used by /balance to report a real, config-derived
+   * number instead of a hardcoded value disconnected from config.yaml.
+   */
+  getMaxPositionSizePct(): number {
+    return this.config.maxPositionSizePct;
+  }
+
+  /**
    * Get current safety state
    */
   getState(): SafetyState {

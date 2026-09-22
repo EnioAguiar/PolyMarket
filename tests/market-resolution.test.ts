@@ -127,7 +127,7 @@ describe('handleMarketResolved PnL computation', () => {
 
     const config: Config = {
       dryRun: false,
-      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15, bankrollUsagePct: 0.5 },
+      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15 },
       polymarket: { host: 'h', gammaHost: 'g', chainId: 137 },
       logging: { level: 'silent', pretty: false },
     };
@@ -232,7 +232,7 @@ describe('evaluateMarketForWebSocket mutex release on early-return paths', () =>
   function makeConfig(): Config {
     return {
       dryRun: false,
-      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15, bankrollUsagePct: 0.5 },
+      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15 },
       polymarket: { host: 'h', gammaHost: 'g', chainId: 137 },
       logging: { level: 'silent', pretty: false },
     };
@@ -330,7 +330,7 @@ describe('evaluateMarketForWebSocket success path (mutex handoff into addBet())'
 
     const config: Config = {
       dryRun: false,
-      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15, bankrollUsagePct: 0.5 },
+      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15 },
       polymarket: { host: 'h', gammaHost: 'g', chainId: 137 },
       logging: { level: 'silent', pretty: false },
     };
