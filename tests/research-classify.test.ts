@@ -50,6 +50,15 @@ describe('extractCryptoThreshold', () => {
   it('does not mistake a bare 4-digit year for a threshold', () => {
     expect(extractCryptoThreshold('Will Bitcoin hit a new high in 2027?')).toBeNull();
   });
+
+  it('extracts a bare comma-formatted threshold from a different real-looking strike question', () => {
+    const result = extractCryptoThreshold('Ethereum above 2,730 on September 22, 2PM ET?');
+    expect(result).toEqual({ symbol: 'ethusdt', threshold: 2730 });
+  });
+
+  it('does not mistake a comma-separated date (day, year) for a threshold', () => {
+    expect(extractCryptoThreshold('Will Bitcoin hit a new high before January 1, 2027?')).toBeNull();
+  });
 });
 
 describe('classifyMarket', () => {

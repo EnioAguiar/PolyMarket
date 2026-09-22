@@ -66,6 +66,26 @@ async function runLiveMarkets(): Promise<void> {
   }
 }
 
+// Broad, backtest-reporting-only pattern for "is this any kind of asset
+// price-threshold question" (crypto or not) -- deliberately separate from
+// classify.ts's extractCryptoThreshold(), which is a production routing
+// decision scoped to Binance-comparable crypto symbols only. This is purely
+// for honestly labeling Run B's buckets; it is never used to route a real
+// strategy call (controller amendment, 2026-09-22, following review that
+// the "other markets" bucket label was factually wrong -- the actual
+// non-crypto survivors in this backtest were stock/commodity price
+// thresholds, not genuine independent event/news questions).
+//
+// Widened-run fix (2026-09-22): the first version only accepted a $-prefixed
+// number or a comma-grouped bare number, so "Will US Dollar Index (DXY) hit
+// (LOW) 100.60 Week of September..." (no $, no comma -- value under 1000)
+// slipped through undetected and was miscounted as a "genuine event" market
+// when it's really the same other-asset threshold task. A decimal point is
+// as strong a non-year signal as a thousands separator (years never carry
+// one), so accept a bare decimal number too.
+const PRICE_THRESHOLD_PATTERN =
+  /\b(above|below|over|under|exceed|reach|hit|surpass)\b[\s\S]{0,20}?(\$\s*[\d,]+(?:\.\d+)?|\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+\.\d+\b)/i;
+
 async function runBacktest(): Promise<void> {
   console.log('\n=== RUN B: Resolved markets backtest (quantitative) ===\n');
   // order=id&ascending=false: the Gamma API's default ordering for closed=true
@@ -73,17 +93,43 @@ async function runBacktest(): Promise<void> {
   // exact 0/1 winner (verified live: 0/100 valid winners with no order param
   // vs 100/100 with id-desc). Sorting by id descending gets real, recently
   // resolved markets with a clean settled outcome.
-  const markets = await fetchMarkets({
-    active: false,
-    closed: true,
-    limit: 100,
-    order: 'id',
-    ascending: false,
-  });
+  //
+  // Widened to 5 pages (500 raw markets, offset-paginated) after review
+  // found the first 100-market pull was entirely price-threshold questions
+  // (BTC/ETH hourly strikes + monthly stock/commodity strikes) -- zero
+  // genuine independent event/news markets. Widening costs nothing extra in
+  // Jev/news spend for the raw fetch (plain Gamma HTTP calls); it only adds
+  // real cost for whatever additional Yes/No survivors need a sentiment
+  // judgment. If this wider pull still finds no genuine event markets,
+  // that itself is the honest, reportable finding -- not spun into a false
+  // "sentiment doesn't work on events" claim it never tested (controller
+  // amendment, 2026-09-22).
+  const PAGES = 5;
+  const PAGE_SIZE = 100;
+  const seen = new Set<string>();
+  const markets: Market[] = [];
+  for (let page = 0; page < PAGES; page++) {
+    const batch = await fetchMarkets({
+      active: false,
+      closed: true,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      order: 'id',
+      ascending: false,
+    });
+    if (batch.length === 0) break;
+    for (const m of batch) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        markets.push(m);
+      }
+    }
+  }
 
   let withSignalCorrect = 0;
   let withSignalTotal = 0;
   let noSignalCount = 0;
+  let errorCount = 0;
   let fullTextCount = 0;
   let headlineOnlyCount = 0;
   let skippedNonYesNo = 0;
@@ -91,19 +137,29 @@ async function runBacktest(): Promise<void> {
   let skippedNoResolveDate = 0;
 
   // Market-type breakdown (controller amendment, 2026-09-22): the combined
-  // withSignal hit-rate above conflates two structurally different tasks --
-  // crypto hourly strike-price questions ("Bitcoin above $84,200 on
-  // September 22, 12PM ET?") are a near-instantaneous technical threshold
-  // that news sentiment has no real mechanism to predict, versus genuine
-  // event/news markets (elections, approvals, geopolitical events) where
-  // sentiment is at least plausible as a signal. Reuse the already-shipped
-  // extractCryptoThreshold() classifier (Task 1) to split the withSignal
-  // bucket by market type so the two very different findings don't get
-  // averaged into one misleading number.
+  // withSignal hit-rate conflates structurally different tasks. Bucket into
+  // three honest groups instead of two:
+  //   - crypto-strike: extractCryptoThreshold() matches (BTC/ETH threshold).
+  //   - other-price-strike: not crypto, but still a price-threshold
+  //     question on some other asset (stock, commodity) -- structurally
+  //     the same near-term technical-threshold task as crypto-strike, NOT
+  //     a genuine independent event/news question.
+  //   - genuine-event: neither -- an actual candidate independent
+  //     event/news market (election, approval, geopolitical event, etc).
+  // Also track distinct resolveDate timestamps per bucket: markets sharing
+  // the same resolveDate (e.g. a ladder of BTC strikes all settling at the
+  // same 3PM ET timestamp) are correlated draws of the same underlying
+  // price path, not independent trials -- reporting raw n alongside
+  // distinct-expiry n makes that visible instead of hiding it.
   let cryptoStrikeCorrect = 0;
   let cryptoStrikeTotal = 0;
-  let otherCorrect = 0;
-  let otherTotal = 0;
+  const cryptoStrikeExpiries = new Set<string>();
+  let otherStrikeCorrect = 0;
+  let otherStrikeTotal = 0;
+  const otherStrikeExpiries = new Set<string>();
+  let genuineEventCorrect = 0;
+  let genuineEventTotal = 0;
+  const genuineEventExpiries = new Set<string>();
 
   for (const market of markets) {
     if (market.outcomes.length !== 2 || market.outcomePrices.length !== 2) continue;
@@ -134,6 +190,9 @@ async function runBacktest(): Promise<void> {
       continue;
     }
     const beforeDate = new Date(market.resolveDate);
+    const isCryptoStrike = extractCryptoThreshold(market.question) !== null;
+    const isOtherStrike = !isCryptoStrike && PRICE_THRESHOLD_PATTERN.test(market.question);
+    const marketType = isCryptoStrike ? 'crypto-strike' : isOtherStrike ? 'other-price-strike' : 'genuine-event';
     try {
       const sentiment = await evaluateSentiment(market, beforeDate);
       const predictedYes = sentiment.probability >= 0.5;
@@ -147,23 +206,28 @@ async function runBacktest(): Promise<void> {
       // whatever the real Yes/No split happens to be, independent of Jev's
       // actual judging quality. Bucket them separately (controller
       // amendment, 2026-09-22).
-      const isCryptoStrike = extractCryptoThreshold(market.question) !== null;
       if (hasSignal) {
         withSignalTotal++;
         if (correct) withSignalCorrect++;
-        if (isCryptoStrike) {
+        if (marketType === 'crypto-strike') {
           cryptoStrikeTotal++;
+          cryptoStrikeExpiries.add(market.resolveDate);
           if (correct) cryptoStrikeCorrect++;
+        } else if (marketType === 'other-price-strike') {
+          otherStrikeTotal++;
+          otherStrikeExpiries.add(market.resolveDate);
+          if (correct) otherStrikeCorrect++;
         } else {
-          otherTotal++;
-          if (correct) otherCorrect++;
+          genuineEventTotal++;
+          genuineEventExpiries.add(market.resolveDate);
+          if (correct) genuineEventCorrect++;
         }
       } else {
         noSignalCount++;
       }
 
       console.log(
-        `[sentiment] "${market.question.slice(0, 60)}" predicted=${predictedYes ? 'YES' : 'NO'} real=${realIsYes ? 'YES' : 'NO'} ${correct ? '\u2713' : '\u2717'} articles=${sentiment.articlesFound}${hasSignal ? '' : ' (NO SIGNAL, default 0.5)'} type=${isCryptoStrike ? 'crypto-strike' : 'other'} resolveDate=${market.resolveDate}`
+        `[sentiment] "${market.question.slice(0, 60)}" predicted=${predictedYes ? 'YES' : 'NO'} real=${realIsYes ? 'YES' : 'NO'} ${correct ? '\u2713' : '\u2717'} articles=${sentiment.articlesFound}${hasSignal ? '' : ' (NO SIGNAL, default 0.5)'} type=${marketType} resolveDate=${market.resolveDate}`
       );
       for (const article of sentiment.articles) {
         console.log(`    - p=${article.probability.toFixed(2)} "${article.title.slice(0, 70)}" ${article.link}`);
@@ -182,7 +246,12 @@ async function runBacktest(): Promise<void> {
         }
       }
     } catch (error) {
-      console.log(`[sentiment] "${market.question.slice(0, 60)}" ERROR: ${error}`);
+      // Previously silently dropped this market from every counter --
+      // fetched-count and (withSignal + noSignal) would then disagree with
+      // no explanation (review finding, 2026-09-22). Count and log it
+      // explicitly instead.
+      errorCount++;
+      console.log(`[sentiment] "${market.question.slice(0, 60)}" ERROR (excluded from all counts): ${error}`);
     }
 
     // Tail-end: only applicable if we can reconstruct that the market was
@@ -192,21 +261,25 @@ async function runBacktest(): Promise<void> {
     // tail-end in the backtest and note the limitation explicitly.
   }
 
-  console.log(`\nFetched ${markets.length} resolved markets.`);
+  console.log(`\nFetched ${markets.length} resolved markets (${PAGES} pages x ${PAGE_SIZE}, deduplicated).`);
   console.log(`Skipped (non Yes/No outcome pair, e.g. Over/Under or team names): ${skippedNonYesNo}`);
   console.log(`Skipped (no settled 0/1 winner in outcomePrices): ${skippedNoWinner}`);
   console.log(`Skipped (no resolveDate to bound the search): ${skippedNoResolveDate}`);
+  console.log(`Errored (Jev/news call threw, excluded from all counts below): ${errorCount}`);
   console.log(
     `\nSentiment strategy (markets with real news signal only): ${withSignalCorrect}/${withSignalTotal} correct`
   );
   console.log(
-    `  - Crypto strike-price markets (e.g. "Bitcoin above $84,200 on September 22, 12PM ET?", classified via extractCryptoThreshold()): ${cryptoStrikeCorrect}/${cryptoStrikeTotal} correct${cryptoStrikeTotal > 0 ? ` (${((cryptoStrikeCorrect / cryptoStrikeTotal) * 100).toFixed(1)}%)` : ''}`
+    `  - Crypto price-threshold (BTC/ETH, e.g. "Bitcoin above 88,200 on September 22, 3PM ET?"): ${cryptoStrikeCorrect}/${cryptoStrikeTotal} correct${cryptoStrikeTotal > 0 ? ` (${((cryptoStrikeCorrect / cryptoStrikeTotal) * 100).toFixed(1)}%)` : ''}, ${cryptoStrikeExpiries.size} distinct resolveDate timestamp(s) -- markets sharing a timestamp are correlated draws of the same price path, not independent trials`
   );
   console.log(
-    `  - Other markets (genuine independent event/news questions): ${otherCorrect}/${otherTotal} correct${otherTotal > 0 ? ` (${((otherCorrect / otherTotal) * 100).toFixed(1)}%)` : ''}`
+    `  - Other-asset price-threshold (stocks/commodities, e.g. "Will Coinbase (COIN) hit (HIGH) $200 in September?" -- NOT genuine event/news questions, same structural task as crypto-strike): ${otherStrikeCorrect}/${otherStrikeTotal} correct${otherStrikeTotal > 0 ? ` (${((otherStrikeCorrect / otherStrikeTotal) * 100).toFixed(1)}%)` : ''}, ${otherStrikeExpiries.size} distinct resolveDate timestamp(s)`
   );
   console.log(
-    `  - Combined (for continuity with prior reporting): ${withSignalCorrect}/${withSignalTotal} correct${withSignalTotal > 0 ? ` (${((withSignalCorrect / withSignalTotal) * 100).toFixed(1)}%)` : ''}`
+    `  - Genuine independent event/news markets (neither of the above -- elections, approvals, geopolitical events, etc): ${genuineEventCorrect}/${genuineEventTotal} correct${genuineEventTotal > 0 ? ` (${((genuineEventCorrect / genuineEventTotal) * 100).toFixed(1)}%)` : ''}, ${genuineEventExpiries.size} distinct resolveDate timestamp(s)`
+  );
+  console.log(
+    `  - Combined (all three buckets, for continuity with prior reporting -- NOT a single coherent task, see buckets above): ${withSignalCorrect}/${withSignalTotal} correct${withSignalTotal > 0 ? ` (${((withSignalCorrect / withSignalTotal) * 100).toFixed(1)}%)` : ''}`
   );
   console.log(
     `Sentiment strategy, zero-article "no signal" markets (excluded from the accuracy number above, defaulted to a bare 0.5/"YES" guess): ${noSignalCount}`
