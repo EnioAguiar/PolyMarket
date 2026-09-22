@@ -61,14 +61,37 @@ export interface NewsArticle {
   source: string;
 }
 
-export async function searchGoogleNewsRss(query: string, maxResults = 10): Promise<NewsArticle[]> {
-  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+export interface SearchOptions {
+  maxResults?: number;
+  before?: Date; // exclude articles published on/after this date — required for backtest leakage prevention, see §5
+}
+
+export async function searchGoogleNewsRss(query: string, opts: SearchOptions = {}): Promise<NewsArticle[]> {
+  const maxResults = opts.maxResults ?? 10;
+  let searchQuery = query;
+  if (opts.before) {
+    searchQuery += ` before:${opts.before.toISOString().split('T')[0]}`;
+  }
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(searchQuery)}&hl=en-US&gl=US&ceid=US:en`;
   const response = await fetch(url);
   if (!response.ok) throw new Error(`Google News RSS error: ${response.status}`);
   const xml = await response.text();
-  return parseRssItems(xml).slice(0, maxResults);
+  let articles = parseRssItems(xml);
+  if (opts.before) {
+    // Defensive second layer: Google's `before:` operator is a query hint,
+    // not something this project controls or can fully trust server-side.
+    // Drop anything that slipped through with a pubDate on/after the cutoff.
+    articles = articles.filter((a) => {
+      const pubDate = new Date(a.pubDate);
+      return Number.isNaN(pubDate.getTime()) ? true : pubDate < opts.before!;
+    });
+  }
+  return articles.slice(0, maxResults);
 }
 ```
+
+**This date-bound filtering is required, not a nice-to-have.** Without it, Run B's backtest (§8) would search Google News *today* for a market that already resolved, retrieve articles reporting the outcome itself, and score Jev as "predicting" by having it read a headline that states the answer — a near-100%, worthless hit-rate. Run A (live open markets) omits `before` entirely — there is nothing to leak against for a market that hasn't resolved yet. Run B MUST pass `before: <the market's own resolution date>`.
+
 
 `parseRssItems` is a minimal XML/RSS parser extracting `<item><title>`, `<link>`, `<pubDate>`, and the `<source>` tag from each `<item>` — use a small, focused regex-or-DOMParser-based extraction (no new heavy XML dependency; check `package.json` for an existing XML/RSS parsing library before adding one — if `xml2js` or similar is already a transitive dependency usable directly, prefer it over hand-rolled regex parsing of XML, which is fragile; if nothing suitable exists, a minimal regex extraction limited to these 4 well-known Google News RSS tag shapes is acceptable given the narrow, stable input format).
 
@@ -128,8 +151,11 @@ export interface SentimentSignal {
   articles: { title: string; link: string; probability: number }[];
 }
 
-export async function evaluateSentiment(market: Market): Promise<SentimentSignal> {
-  const articles = await searchGoogleNewsRss(market.question, 5);
+**Critical: date-bound filtering is required, not optional — without it, Run B's backtest (§8) is methodologically worthless.** Searching Google News *today* for a market's question after it has already resolved returns articles reporting the outcome itself, not pre-resolution sentiment — Jev would then be "predicting" by reading a headline that states the answer, and the backtest's hit-rate would measure nothing real (near-100%, and meaningless). `searchGoogleNewsRss` and `evaluateSentiment` MUST accept an optional cutoff date and enforce it two ways: append a `before:YYYY-MM-DD` operator to the query (Google's own date-bound search operator) AND defensively drop any returned item whose own `pubDate` is on or after the cutoff (the `before:` operator's server-side enforcement is not something this project controls or can fully trust).
+
+```typescript
+export async function evaluateSentiment(market: Market, beforeDate?: Date): Promise<SentimentSignal> {
+  const articles = await searchGoogleNewsRss(market.question, { maxResults: 5, before: beforeDate });
   const judged = await Promise.all(
     articles.map(async (a) => {
       const text = await fetchArticleText(a.link).catch(() => a.title); // fall back to headline if full fetch fails
@@ -152,6 +178,8 @@ export async function evaluateSentiment(market: Market): Promise<SentimentSignal
   };
 }
 ```
+
+In Run A (live open markets, §8), `beforeDate` is omitted — there's nothing to leak against for a market that hasn't resolved yet. In Run B (the resolved-market backtest, §8), `beforeDate` MUST be the market's own `resolveDate`, so the search only sees news from before the event resolved.
 
 ### 6. Tail-end sweep strategy (with research confirmation, per the project owner's answer)
 
@@ -238,8 +266,9 @@ Two runs, per the project owner's requirement to measure real accuracy, not just
 **Run B — backtest against resolved markets** (quantitative accuracy):
 1. `fetchMarkets({ active: false, closed: true, limit: 30 })` — the Gamma API's raw response includes `outcomes` and `outcomePrices` (confirmed this session); `src/api/polymarket.ts`'s `fetchMarkets` mapper currently does NOT surface these two fields on its `Market` return type — extend the `Market` type and this mapper to include `outcomes: string[]` and `outcomePrices: number[]`, parsed from the raw JSON string fields the same way `clobTokenIds` is already parsed.
 2. For each resolved market, determine the real winning outcome from `outcomePrices` (index of `"1"` in the array, mapped through `outcomes`).
-3. Run only the `sentiment` and `tail_end` strategies against these (resolution sniping's "live price" input is meaningless for a market that already resolved in the past — explicitly skip it for Run B, note this limitation in the script's output rather than fabricating a comparison). Feed the strategy functions the market's `question` only — do not feed them the known resolution, obviously.
-4. Compare each strategy's predicted probability (rounded to a YES/NO call at the 0.5 threshold) against the real winning outcome. Print a hit-rate summary: `sentiment: N/M correct`, `tail_end: N/M correct` (only counting markets tail_end actually classified as tail-end — most resolved markets won't qualify, that's expected and fine, report the count that did).
+3. Run only the `sentiment` strategy against these, calling `evaluateSentiment(market, market.resolveDate ? new Date(market.resolveDate) : undefined)` — the `beforeDate` cutoff (§5) is mandatory here to prevent the search from returning post-resolution articles that state the outcome (see §2/§5's leakage warning). `tail_end` and `resolution_sniping` are NOT backtestable against resolved markets and MUST NOT be attempted: `tail_end` needs the market's *pre-resolution* price to know whether it was ever actually in the tail, which the Gamma API's closed-market response doesn't expose (only the final `outcomePrices`, which are always `1`/`0` after resolution and thus useless as a "was this near-certain" signal); `resolution_sniping`'s live-Binance-price comparison is meaningless for a market that resolved in the past. State this limitation plainly in the script's own printed output rather than fabricating a number for either.
+4. Compare the sentiment strategy's predicted probability (rounded to a YES/NO call at the 0.5 threshold) against the real winning outcome. Print a hit-rate summary: `sentiment: N/M correct`.
+
 
 Both runs are manual (`npx tsx scripts/validate-research.ts`), not part of `npm test` or CI — this is a one-time (or occasionally re-run) human-reviewed validation, not a permanent regression suite (Non-Goals).
 
@@ -249,6 +278,7 @@ Both runs are manual (`npx tsx scripts/validate-research.ts`), not part of `npm 
 - Unit test `classifyMarket`'s regex-based crypto-question detection and threshold extraction — this IS deterministic and easy to get subtly wrong (e.g. "Bitcoin" vs "BTC", `$70,000` vs `$70k` formatting). Cover a handful of real-looking question strings.
 - Unit test the Gamma API response parsing for `outcomes`/`outcomePrices` (Run B's ground truth) against the real shape captured this session.
 - `google-news-rss.ts`'s RSS parsing: unit test against a captured real response sample (save one real response as a fixture during implementation, don't invent one).
+- **`google-news-rss.ts`'s `before` date filtering MUST have a unit test that would catch a leakage regression**: construct a fixture with items dated both before and after a chosen cutoff, call `searchGoogleNewsRss` with `before: cutoff`, and assert only the pre-cutoff items are returned. A test that only checks the query string contains `before:YYYY-MM-DD` without asserting the actual filtering behavior does not satisfy this — the defensive client-side filter (§2) is the one this project actually controls and must be proven, not just the query hint sent to Google.
 - Manual verification: run both validation script modes for real, read the output, and report to the project owner rather than assuming success from a clean exit code.
 
 ## Success Criteria
@@ -259,6 +289,6 @@ Both runs are manual (`npx tsx scripts/validate-research.ts`), not part of `npm 
 - [ ] `classifyMarket` correctly routes at least one real example of each strategy type (manually curated examples acceptable if live markets of each type aren't all available at test time).
 - [ ] `resolution-sniping.ts` correctly compares a real Binance price against a real market's implied price for at least one live crypto-threshold market.
 - [ ] Run A (live markets) produces a human-readable table for ≥20 real current markets.
-- [ ] Run B (backtest) produces a real hit-rate number (not zero markets classified) for at least the `sentiment` strategy against resolved markets.
+- [ ] Run B (backtest) produces a real hit-rate number (not zero markets classified) for at least the `sentiment` strategy against resolved markets, computed with `beforeDate` set to each market's own resolution date — confirmed by inspecting at least one Run B article result and verifying its `pubDate` predates the market's `resolveDate`.
 - [ ] No change to `src/websocket/integration.ts`, `src/index.ts`'s trading path, or any file touched by sub-projects 1-3's safety-critical logic.
 - [ ] `npm run build && npx vitest run` passes (existing 42 tests unaffected, new unit tests from Testing section added and passing).
