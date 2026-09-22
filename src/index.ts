@@ -1,4 +1,13 @@
-import http from 'http';
+import { ProxyAgent } from 'proxy-agent';
+import http from 'node:http';
+import https from 'node:https';
+
+const proxyUrl = process.env.POLYMARKET_PROXY_URL;
+if (proxyUrl) {
+  const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
+  http.globalAgent = proxyAgent;
+  https.globalAgent = proxyAgent;
+}
 import { loadConfig } from './config/index.js';
 import { initLogger, getLogger } from './logging/index.js';
 import { PolymarketWsClient, createPolymarketWsClient } from './websocket/client.js';

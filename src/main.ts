@@ -1,4 +1,13 @@
-import 'global-agent/bootstrap';
+import { ProxyAgent } from 'proxy-agent';
+import http from 'node:http';
+import https from 'node:https';
+
+const proxyUrl = process.env.POLYMARKET_PROXY_URL;
+if (proxyUrl) {
+  const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
+  http.globalAgent = proxyAgent;
+  https.globalAgent = proxyAgent;
+}
 import { loadConfig, isDryRun } from './config/index.js';
 import { initLogger, getLogger, logBetDecision } from './logging/index.js';
 import { fetchMarkets, filterByCategory, filterByTimeHorizon, getYesTokenId } from './api/polymarket.js';
