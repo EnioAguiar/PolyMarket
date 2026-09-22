@@ -102,9 +102,9 @@ Confirmado em [docs.polymarket.com/api-reference/geoblock](https://docs.polymark
 
 **Implicação direta:** IP brasileiro **não abre ordem nova nem pelo site nem pela API** — não é "site bloqueado, API livre". Rodar o bot a partir de uma casa/IP residencial no Brasil não funcionaria de jeito nenhum pra abrir posição, mesmo batendo direto na API.
 
-**Por que rodar num servidor cloud não resolve sozinho:** o geoblock verifica o IP de origem da requisição, não a nacionalidade do dono da carteira — mas **EUA está no mesmo tier de bloqueio que o Brasil** (close-only frontend+API), então um deploy Railway numa região US seria tão bloqueado quanto uma casa no Brasil. Servidores primários da Polymarket ficam em `eu-west-2`; a doc cita `eu-west-1` (Irlanda) como "closest non-georestricted region" — Irlanda está só no tier close-only-frontend (API livre). `railway.json`/`railpack.json` não fixam região no repo (é configurado no dashboard do Railway, fora do código) — **região atual não confirmada**. Isso é resolvido pelo proxy já usado no projeto — `proxy-agent`/`socks-proxy-agent` no `package.json` (`global-agent` também está listado ali, mas é incompatível com SOCKS5 e está sendo removido no sub-projeto 2, ver item 4 dos Próximos Passos e `docs/superpowers/specs/2026-09-21-infra-resilience-design.md`) — essa é a mitigação real, não a região do Railway em si.
+**Por que rodar num servidor cloud não resolve sozinho:** o geoblock verifica o IP de origem da requisição, não a nacionalidade do dono da carteira — mas **EUA está no mesmo tier de bloqueio que o Brasil** (close-only frontend+API), então um deploy Railway numa região US seria tão bloqueado quanto uma casa no Brasil. Servidores primários da Polymarket ficam em `eu-west-2`; a doc cita `eu-west-1` (Irlanda) como "closest non-georestricted region" — Irlanda está só no tier close-only-frontend (API livre). `railway.json`/`railpack.json` não fixam região no repo (é configurado no dashboard do Railway, fora do código) — **região atual não confirmada**. Isso é resolvido pelo proxy já usado no projeto — `proxy-agent`/`socks-proxy-agent` no `package.json` (`global-agent` estava listado ali antes, mas era incompatível com SOCKS5 e foi removido no sub-projeto 2, ver item 4 dos Próximos Passos e `docs/superpowers/plans/2026-09-21-infra-resilience.md`) — essa é a mitigação real, não a região do Railway em si.
 
-**Risco em aberto:** nunca foi confirmado que a região atual do deploy Railway está fora da lista de restrição. Adicionar uma checagem do endpoint `/api/geoblock` no startup do bot (falhar cedo e alertar via Telegram se `blocked: true`) evitaria descobrir isso só quando uma ordem for rejeitada em produção.
+**Risco fechado (21/set/2026):** implementado — `src/api/geoblock.ts` checa `/api/geoblock` no startup e desliga o trading real (`createClobClient()` inalcançável) se `blocked: true`, usando o mesmo caminho de proxy que o resto do tráfego de trading. Testado ao vivo: `{"blocked":false,"country":"IN","region":"MH"}`, confirmando que o guard enxerga o egress real via proxy. Ver item 6 dos Próximos Passos e `docs/superpowers/plans/2026-09-21-infra-resilience.md`.
 
 ---
 
@@ -212,7 +212,7 @@ src/
 | Gamma REST (listagem de mercados) | `https://gamma-api.polymarket.com/markets` | pública |
 | CLOB REST (ordens) | `https://clob.polymarket.com`, `@polymarket/clob-client-v2` | L2 ECDSA via `PRIVATE_KEY` |
 | CLOB WebSocket | `wss://ws-subscriptions-clob.polymarket.com/ws/market` | pública |
-| RPC Polygon | `viem`, padrão `https://polygon.llamarpc.com`, override via `POLYGON_RPC_URL` | — |
+| RPC Polygon | `viem` `fallback()` sobre `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org` (verificados ao vivo), override do primeiro via `POLYGON_RPC_URL` | — |
 | MiniMax AI | `https://api.minimax.io/anthropic/v1/messages` | Bearer `MINIMAX_API_KEY` |
 | NewsData.io / Google CSE / CoinGecko / Binance WS / API-Football | ver `.env.example` | chaves opcionais por fonte |
 | Twitter (Tweepy) / Reddit (PRAW) / Crawl4AI | subprocessos Python (`scripts/*.py`) | credenciais opcionais |
