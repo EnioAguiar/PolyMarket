@@ -281,6 +281,16 @@ Both runs are manual (`npx tsx scripts/validate-research.ts`), not part of `npm 
 - **`google-news-rss.ts`'s `before` date filtering MUST have a unit test that would catch a leakage regression**: construct a fixture with items dated both before and after a chosen cutoff, call `searchGoogleNewsRss` with `before: cutoff`, and assert only the pre-cutoff items are returned. A test that only checks the query string contains `before:YYYY-MM-DD` without asserting the actual filtering behavior does not satisfy this — the defensive client-side filter (§2) is the one this project actually controls and must be proven, not just the query hint sent to Google.
 - Manual verification: run both validation script modes for real, read the output, and report to the project owner rather than assuming success from a clean exit code.
 
+## Future Work (explicitly out of scope for this phase)
+
+Raised by the project owner during this session: an ongoing improvement loop, once Run B's backtest has been run enough times (or real trading history accumulates) to have real labeled outcomes. Noted here for continuity, not designed or built in this phase:
+
+- **Not Jev fine-tuning.** TypeSafe's own documentation states Jev is not fine-tuned or LoRA-adapted per customer — the same weights serve every account. "Training" this system does not mean training the model.
+- **Calibration tracking**: compare Jev's stated probability against the real observed outcome frequency at that probability band (e.g., "of all judgments where Jev said ~70%, did ~70% actually resolve YES?"). A reliability/calibration curve, computed after enough labeled outcomes exist, could correct systematic over/under-confidence in code (e.g. Platt scaling) without touching the model.
+- **Per-category hit-rate tracking**: measure whether sentiment accuracy differs meaningfully by market category (crypto vs. politics vs. sports) and restrict real usage to categories with demonstrated accuracy.
+- **Instruction/prompt refinement**: if a category's hit-rate is poor, iterate on the `instructions` text and `state` context sent to Jev — manual iteration, not automated training.
+- **Source-weight tuning**: the existing (currently disconnected) `research/confidence.ts` Bayesian scorer's star-rating weights per source could eventually be tuned against accumulated real outcomes instead of the current fixed defaults.
+
 ## Success Criteria
 
 - [ ] `TYPESAFE_API_KEY` is in `.env`, `src/ai/jev.ts`'s `judgeNoul` makes a real call and returns a valid `{probability, confidence}`.
