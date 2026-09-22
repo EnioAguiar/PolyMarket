@@ -314,7 +314,7 @@ Sessão de 22/set/2026, plano `docs/superpowers/plans/2026-09-22-research-signal
 **O que foi construído:**
 
 - **3 estratégias de research** (`src/research/strategies/`): `sentiment` (pergunta a IA se a resposta é YES/NO com base em notícias reais), `tail_end` (mercados quase resolvidos, calcula confiança implícita a partir do preço), `resolution_sniping` (compara preço à vista real na Binance contra o preço implícito do mercado, pra mercados de limiar cripto).
-- **Fontes de dados reais, sem mock**: Google News RSS (`src/research/google-news-rss.ts`, com filtro `beforeDate` pra evitar vazamento de informação futura no backtest), Crawl4AI via subprocesso Python (`src/research/crawl4ai.ts`, texto completo do artigo quando o site permite), Binance (preço à vista pros mercados de limiar).
+- **Fontes de dados reais, sem mock**: Google News RSS (`src/research/sources/google-news-rss.ts`, com filtro `beforeDate` pra evitar vazamento de informação futura no backtest), Crawl4AI via subprocesso Python (`src/research/crawl4ai.ts`, texto completo do artigo quando o site permite), Binance (preço à vista pros mercados de limiar).
 - **IA de julgamento**: TypeSafe/Jev (`src/ai/jev.ts`) — a decisão de provider de IA que estava em aberto no item 10 dos Próximos Passos (ver abaixo) foi tomada nesta sessão. `TYPESAFE_API_KEY` está no `.env`, veio do login local do TypeSafe desta sessão, confirmado funcionando ao vivo (chamadas reais de julgamento no backtest abaixo).
 - **Script de validação com dados reais** (`scripts/validate-research.ts`): roda as 3 estratégias contra mercados reais da Gamma API — mercados abertos (qualitativo) e mercados já resolvidos (backtest quantitativo, com guarda de vazamento de data).
 
