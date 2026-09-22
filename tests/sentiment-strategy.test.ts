@@ -35,6 +35,7 @@ describe('evaluateSentiment', () => {
     expect(signal.articlesFound).toBe(2);
     expect(signal.probability).toBeCloseTo(0.55, 5);
     expect(signal.articles).toHaveLength(2);
+    expect(signal.articles.every((a) => a.usedFullText)).toBe(true);
   });
 
   it('falls back to the headline when article fetch fails', async () => {
@@ -46,6 +47,7 @@ describe('evaluateSentiment', () => {
 
     const signal = await evaluateSentiment(market);
     expect(signal.articles[0].probability).toBe(0.6);
+    expect(signal.articles[0].usedFullText).toBe(false);
   });
 
   it('returns confidence 0.3 with fewer than 3 articles, 0.7 otherwise', async () => {

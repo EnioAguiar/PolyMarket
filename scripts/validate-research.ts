@@ -6,7 +6,6 @@ import { classifyMarket, extractCryptoThreshold } from '../src/research/classify
 import { evaluateSentiment } from '../src/research/strategies/sentiment.js';
 import { evaluateTailEnd } from '../src/research/strategies/tail-end.js';
 import { evaluateResolutionSniping } from '../src/research/strategies/resolution-sniping.js';
-import { fetchArticleText } from '../src/research/crawl4ai.js';
 import type { Market } from '../src/types/index.js';
 
 async function getMidPriceForMarket(market: Market): Promise<number | null> {
@@ -145,18 +144,16 @@ async function runBacktest(): Promise<void> {
       );
       for (const article of sentiment.articles) {
         console.log(`    - p=${article.probability.toFixed(2)} "${article.title.slice(0, 70)}" ${article.link}`);
-        // evaluateSentiment falls back to the bare headline
-        // (.catch(() => article.title) in sentiment.ts) when
-        // fetchArticleText can't reach the full article -- re-probe the
-        // same URL here to measure how often that fallback actually fires
-        // in this run's environment, since it's a real, separate signal-
-        // quality factor from Jev's judging accuracy (controller amendment,
-        // 2026-09-22). This duplicates the network/subprocess call but
-        // spends no Jev credit.
-        try {
-          await fetchArticleText(article.link);
+        // evaluateSentiment itself reports whether Jev judged real crawled
+        // article text or the bare-headline fallback (usedFullText) -- a
+        // second independent fetchArticleText() re-probe here would be
+        // unreliable: crawl4ai has real flakiness (timeouts, per-site
+        // anti-bot defenses) and a retry can succeed or fail differently
+        // than the original call that actually fed Jev (controller
+        // amendment, 2026-09-22).
+        if (article.usedFullText) {
           fullTextCount++;
-        } catch {
+        } else {
           headlineOnlyCount++;
           console.log(`      (full-text fetch failed -- Jev judged this on headline only)`);
         }

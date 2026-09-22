@@ -10,7 +10,7 @@ export interface SentimentSignal {
   articlesFound: number;
   probability: number;
   confidence: number;
-  articles: { title: string; link: string; probability: number }[];
+  articles: { title: string; link: string; probability: number; usedFullText: boolean }[];
 }
 
 export async function evaluateSentiment(market: Market, beforeDate?: Date): Promise<SentimentSignal> {
@@ -18,12 +18,16 @@ export async function evaluateSentiment(market: Market, beforeDate?: Date): Prom
 
   const judged = await Promise.all(
     articles.map(async (article) => {
-      const text = await fetchArticleText(article.link).catch(() => article.title);
+      let usedFullText = true;
+      const text = await fetchArticleText(article.link).catch(() => {
+        usedFullText = false;
+        return article.title;
+      });
       const result = await judgeNoul(
         `Market question: "${market.question}"\n\nNews article: "${article.title}"\n\n${text}`,
         'Does this news article suggest the answer to the market question is YES?'
       );
-      return { title: article.title, link: article.link, probability: result.probability };
+      return { title: article.title, link: article.link, probability: result.probability, usedFullText };
     })
   );
 

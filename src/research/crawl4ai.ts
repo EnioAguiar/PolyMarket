@@ -10,7 +10,7 @@ import type { ResearchSource, ResearchSignal } from './interface.js';
 // judged on RSS headline text alone instead of full article text).
 // PYTHON_BIN lets a deploy without a venv (e.g. crawl4ai installed
 // globally) override this.
-const PYTHON_BIN = process.env.PYTHON_BIN ?? (existsSync('.venv/bin/python3') ? '.venv/bin/python3' : 'python3');
+export const PYTHON_BIN = process.env.PYTHON_BIN ?? (existsSync('.venv/bin/python3') ? '.venv/bin/python3' : 'python3');
 
 export class Crawl4AIWebAdapter implements ResearchSource {
   id = 'crawl4ai_web';
