@@ -194,6 +194,15 @@ export async function placeMarketOrder(
 
     logger.info({ tokenId, side, amount, result }, 'Market order posted');
 
+    if (!result.success) {
+      logger.error({ tokenId, side, amount, result }, 'Market order rejected by CLOB');
+      return {
+        success: false,
+        orderID: result.orderID,
+        reason: result.errorMsg || 'Market order rejected by CLOB (no error message returned)',
+      };
+    }
+
     return {
       success: true,
       orderID: result.orderID,
@@ -233,6 +242,15 @@ export async function placeLimitOrder(
     );
 
     logger.info({ tokenId, side, price, size, result }, 'Limit order posted');
+
+    if (!result.success) {
+      logger.error({ tokenId, side, price, size, result }, 'Limit order rejected by CLOB');
+      return {
+        success: false,
+        orderID: result.orderID,
+        reason: result.errorMsg || 'Limit order rejected by CLOB (no error message returned)',
+      };
+    }
 
     return {
       success: true,
