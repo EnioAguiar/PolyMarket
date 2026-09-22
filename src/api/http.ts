@@ -1,23 +1,22 @@
-import { http, createPublicClient, PublicClient } from 'viem';
+import { http, createPublicClient, fallback, PublicClient } from 'viem';
 import { polygon } from 'viem/chains';
 
 let sharedPublicClient: PublicClient | null = null;
 
 const POLYGON_RPC_URLS = [
-  'https://polygon.llamarpc.com',
-  'https://rpc.ankr.com/polygon',
   'https://1rpc.io/matic',
+  'https://polygon-bor-rpc.publicnode.com',
+  'https://polygon.drpc.org',
 ];
 
 export function createSharedPublicClient(): PublicClient {
   if (!sharedPublicClient) {
-    const RPC_URL = process.env.POLYGON_RPC_URL || POLYGON_RPC_URLS[0];
+    const urls = process.env.POLYGON_RPC_URL
+      ? [process.env.POLYGON_RPC_URL, ...POLYGON_RPC_URLS]
+      : POLYGON_RPC_URLS;
     sharedPublicClient = createPublicClient({
       chain: polygon,
-      transport: http(RPC_URL, {
-        retryCount: 3,
-        retryDelay: 1000,
-      }),
+      transport: fallback(urls.map((url) => http(url, { retryCount: 2, retryDelay: 500 }))),
     });
   }
   return sharedPublicClient;
