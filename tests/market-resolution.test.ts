@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { DailyLossTracker } from '../src/safety/daily-loss.js';
 import { createCycleManager } from '../src/betting/index.js';
 import type { SafetyState } from '../src/types/index.js';
-import type { SafetyModule } from '../src/safety/index.js';
+import { SafetyModule } from '../src/safety/index.js';
 import type { WsMarketEvent } from '../src/websocket/types.js';
 import type { Config, OrderBook } from '../src/types/index.js';
 import pino from 'pino';
@@ -95,6 +95,47 @@ describe('handleMarketResolved PnL computation', () => {
     await handleMarketResolved('m2', 'NO', cycleManager, fakeSafetyModule, silentLogger);
 
     expect(recordTrade).toHaveBeenCalledWith(-100, 500);
+  });
+
+  it('does not call recordTrade() when getPUSDBalance() returns the 0 failure sentinel (still resolves the bet)', async () => {
+    const cycleManager = createCycleManager();
+    cycleManager.addBet({ marketId: 'm3', assetId: 'a3', side: 'YES', odds: 0.5, size: 100 });
+
+    const recordTrade = vi.fn();
+    const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
+    vi.mocked(getPUSDBalance).mockResolvedValue(0);
+
+    await handleMarketResolved('m3', 'YES', cycleManager, fakeSafetyModule, silentLogger);
+
+    expect(recordTrade).not.toHaveBeenCalled();
+    // The bet itself is still resolved -- its PnL came from the bet's own
+    // recorded odds/size, not from the (failed) balance read.
+    expect(cycleManager.getPendingBets()).toHaveLength(0);
+    expect(cycleManager.isMarketLocked('m3')).toBe(false);
+  });
+
+  it('does not trip the drawdown kill switch when the balance read returns 0 (RPC failure sentinel, not a real loss)', async () => {
+    const cycleManager = createCycleManager();
+    cycleManager.addBet({ marketId: 'm4', assetId: 'a4', side: 'YES', odds: 0.5, size: 100 });
+
+    const config: Config = {
+      dryRun: false,
+      safety: { maxPositionSizePct: 0.08, dailyLossLimitPct: 0.05, drawdownKillSwitchPct: 0.15, bankrollUsagePct: 0.5 },
+      polymarket: { host: 'h', gammaHost: 'g', chainId: 137 },
+      logging: { level: 'silent', pretty: false },
+    };
+    const initialState: SafetyState = { dailyLoss: 0, totalDrawdown: 0, isKillSwitchActive: false };
+    // Real SafetyModule/DrawdownTracker, peak bankroll seeded at 1000: a
+    // recordTrade(pnl, 0) would compute a 100% drawdown and permanently trip
+    // the kill switch if the guard were missing.
+    const safetyModule = new SafetyModule(config, initialState, 1000);
+    vi.mocked(getPUSDBalance).mockResolvedValue(0);
+
+    await handleMarketResolved('m4', 'YES', cycleManager, safetyModule, silentLogger);
+
+    expect(safetyModule.isKillSwitchActive()).toBe(false);
+    expect(safetyModule.getState().isKillSwitchActive).toBe(false);
+    expect(safetyModule.getState().totalDrawdown).toBe(0);
   });
 
   it('is a no-op when there is no pending bet for the resolved market', async () => {

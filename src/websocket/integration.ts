@@ -239,6 +239,20 @@ export async function handleMarketResolved(
   cycleManager.resolveBet(marketId, winningOutcome, pnl);
 
   const newBalance = await getPUSDBalance();
+  if (!(newBalance > 0)) {
+    // getPUSDBalance() returns the sentinel 0 on any RPC/read failure (see
+    // src/api/clob.ts) rather than throwing. Feeding that into recordTrade()
+    // would make DrawdownTracker see a 100% drawdown from peakBankroll and
+    // permanently trip the kill switch off a transient network blip, not a
+    // real trading loss. The bet is still resolved above (its PnL came from
+    // the bet's own recorded odds/size, not this balance read) — only the
+    // safety-state update is skipped until a valid balance is observed.
+    logger.warn(
+      { marketId, newBalance, pnl },
+      'Skipping recordTrade(): pUSD balance read returned an invalid value (0 or less), refusing to update safety state from it'
+    );
+    return;
+  }
   safetyModule.recordTrade(pnl, newBalance);
 
   logger.info({ marketId, winningOutcome, won, pnl, newBalance }, 'Market resolution recorded, safety state updated');
