@@ -23,30 +23,47 @@ export async function judgeNoul(state: string, instructions: string): Promise<Je
     throw new Error('TYPESAFE_API_KEY environment variable is required');
   }
 
-  const response = await fetch('https://api.typesafe.ai/v1/systemone', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'jev-latest',
-      state,
-      questions: {
-        judgment: { type: 'noul', instructions },
+  // TypeSafe returns 5xx (observed live: 529 system_overloaded) under load.
+  // A single failed judgment previously propagated straight to the caller,
+  // which in scripts/validate-research.ts's backtest loop silently dropped
+  // that market from every summary counter with no accounting (review
+  // finding, 2026-09-22, after a wider backtest run lost a market to this
+  // exact error). Retry transient 5xx with backoff before giving up --
+  // callers should only see a thrown error for a genuinely persistent
+  // failure or a non-5xx (4xx) error, which retrying cannot fix.
+  const maxAttempts = 3;
+  let lastError: Error = new Error('unreachable');
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const response = await fetch('https://api.typesafe.ai/v1/systemone', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-    }),
-  });
+      body: JSON.stringify({
+        model: 'jev-latest',
+        state,
+        questions: {
+          judgment: { type: 'noul', instructions },
+        },
+      }),
+    });
 
-  if (!response.ok) {
+    if (response.ok) {
+      const data = await response.json();
+      const answer = data.answers.judgment;
+      return {
+        probability: answer.noul,
+        confidence: answer.confidence ?? 1,
+      };
+    }
+
     const body = await response.text();
-    throw new Error(`TypeSafe API error: ${response.status} ${body}`);
+    lastError = new Error(`TypeSafe API error: ${response.status} ${body}`);
+    if (response.status < 500 || attempt === maxAttempts) throw lastError;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 500 * 2 ** (attempt - 1));
+    await promise;
   }
-
-  const data = await response.json();
-  const answer = data.answers.judgment;
-  return {
-    probability: answer.noul,
-    confidence: answer.confidence ?? 1,
-  };
+  throw lastError;
 }

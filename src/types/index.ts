@@ -10,6 +10,11 @@ export interface Market {
   resolveDate?: string; // ISO date for resolution
   outcomes: string[];
   outcomePrices: number[];
+  volumeNum?: number; // Gamma API's total traded volume, used to distinguish
+                       // genuinely significant markets from thin technical
+                       // strike-ladder markets (both real thresholds and
+                       // genuine events exist; volume is a proxy the ladder
+                       // markets fail, e.g. 15-51 vs orders of magnitude more)
 }
 
 // Orderbook entry

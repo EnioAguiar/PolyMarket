@@ -10,6 +10,25 @@ export interface SearchOptions {
   before?: Date; // exclude articles published on/after this date
 }
 
+// CONFIRMED LEAKAGE LIMITATION (2026-09-22, live run 4 of the sub-project 4
+// validation): `before` only prevents leakage when the market's resolveDate
+// is genuinely close to the real-world moment the outcome became known --
+// true for an hourly crypto price-threshold check (resolveDate IS the
+// instant of resolution), false for most administratively-resolved event
+// markets. Real example that slipped through both this filter's day-level
+// `before:` operator AND the defensive pubDate check below: "Will Kamala
+// Harris win the 2024 Democratic Presidential Nomination?" (resolveDate
+// 2024-08-19) was judged on the real, correctly-pre-cutoff-dated headline
+// "It's official: Kamala Harris becomes Democrats' 2024 presidential
+// nominee" -- the real-world nomination event (virtual roll call, early
+// August) had already happened and been reported *before* Polymarket's
+// own resolveDate, which reflects the contract's administrative close, not
+// the moment of real-world certainty. No date-filtering fix inside this
+// function can close that gap -- the input `before` timestamp itself is
+// the wrong proxy for "when this event's outcome became knowable" on
+// slow/administratively-resolved markets. Any caller backtesting against
+// this kind of market needs a cutoff meaningfully earlier than
+// resolveDate (with margin sized per market type), not resolveDate itself.
 export async function searchGoogleNewsRss(query: string, opts: SearchOptions = {}): Promise<NewsArticle[]> {
   const maxResults = opts.maxResults ?? 10;
   let searchQuery = query;

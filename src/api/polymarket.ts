@@ -57,6 +57,7 @@ export async function fetchMarkets(params: {
     resolveDate: raw.endDate || raw.resolution?.resolveDate || raw.resolve_date,
     outcomes: raw.outcomes ? JSON.parse(raw.outcomes) : [],
     outcomePrices: raw.outcomePrices ? JSON.parse(raw.outcomePrices).map(Number) : [],
+    volumeNum: typeof raw.volumeNum === 'number' ? raw.volumeNum : undefined,
   }));
 }
 

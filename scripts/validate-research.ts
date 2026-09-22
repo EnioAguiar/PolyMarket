@@ -88,23 +88,23 @@ const PRICE_THRESHOLD_PATTERN =
 
 async function runBacktest(): Promise<void> {
   console.log('\n=== RUN B: Resolved markets backtest (quantitative) ===\n');
-  // order=id&ascending=false: the Gamma API's default ordering for closed=true
-  // surfaces old/degenerate markets whose outcomePrices never settle to an
-  // exact 0/1 winner (verified live: 0/100 valid winners with no order param
-  // vs 100/100 with id-desc). Sorting by id descending gets real, recently
-  // resolved markets with a clean settled outcome.
+  // order=id&ascending=false was the original choice (avoids markets whose
+  // outcomePrices never settle to an exact 0/1 winner), but review found it
+  // exclusively surfaces a correlated BTC/ETH hourly strike-price ladder --
+  // paginating deeper with offset (verified live) returns more of the same
+  // ladder, not genuine event markets, because id-desc is just "most
+  // recently resolved" and that feed happens to be dominated by hourly
+  // crypto strikes right now.
   //
-  // Widened to 5 pages (500 raw markets, offset-paginated) after review
-  // found the first 100-market pull was entirely price-threshold questions
-  // (BTC/ETH hourly strikes + monthly stock/commodity strikes) -- zero
-  // genuine independent event/news markets. Widening costs nothing extra in
-  // Jev/news spend for the raw fetch (plain Gamma HTTP calls); it only adds
-  // real cost for whatever additional Yes/No survivors need a sentiment
-  // judgment. If this wider pull still finds no genuine event markets,
-  // that itself is the honest, reportable finding -- not spun into a false
-  // "sentiment doesn't work on events" claim it never tested (controller
-  // amendment, 2026-09-22).
-  const PAGES = 5;
+  // order=volumeNum&ascending=false, verified live (2026-09-22), instead
+  // surfaces exactly the genuine independent event/news markets Run B was
+  // always meant to test -- "Will Donald Trump win the 2024 US Presidential
+  // Election?", "Fed decreases interest rates by 50+ bps after January 2026
+  // meeting?", "US forces enter Iran by April 30?" -- all real Yes/No pairs
+  // with clean settled 0/1 outcomes. High-volume markets are structurally
+  // unlikely to be thin technical strike-ladder questions (those observed
+  // at volumeNum ~15-51, orders of magnitude below real event markets).
+  const PAGES = 2;
   const PAGE_SIZE = 100;
   const seen = new Set<string>();
   const markets: Market[] = [];
@@ -114,7 +114,7 @@ async function runBacktest(): Promise<void> {
       closed: true,
       limit: PAGE_SIZE,
       offset: page * PAGE_SIZE,
-      order: 'id',
+      order: 'volumeNum',
       ascending: false,
     });
     if (batch.length === 0) break;
@@ -125,6 +125,7 @@ async function runBacktest(): Promise<void> {
       }
     }
   }
+
 
   let withSignalCorrect = 0;
   let withSignalTotal = 0;
@@ -161,6 +162,15 @@ async function runBacktest(): Promise<void> {
   let genuineEventTotal = 0;
   const genuineEventExpiries = new Set<string>();
 
+  // Cap how many crypto-strike markets sharing the same resolveDate get a
+  // real (paid) sentiment evaluation -- review found a single hourly
+  // expiry can have 10-15 correlated strike rungs, all resolved by the same
+  // underlying price path, so evaluating all of them burns Jev/news budget
+  // for near-zero extra information (controller amendment, 2026-09-22).
+  const CRYPTO_STRIKE_CAP_PER_EXPIRY = 3;
+  const cryptoStrikeEvaluatedPerExpiry = new Map<string, number>();
+  let cryptoStrikeCappedSkipped = 0;
+
   for (const market of markets) {
     if (market.outcomes.length !== 2 || market.outcomePrices.length !== 2) continue;
 
@@ -193,6 +203,15 @@ async function runBacktest(): Promise<void> {
     const isCryptoStrike = extractCryptoThreshold(market.question) !== null;
     const isOtherStrike = !isCryptoStrike && PRICE_THRESHOLD_PATTERN.test(market.question);
     const marketType = isCryptoStrike ? 'crypto-strike' : isOtherStrike ? 'other-price-strike' : 'genuine-event';
+
+    if (isCryptoStrike) {
+      const evaluatedForExpiry = cryptoStrikeEvaluatedPerExpiry.get(market.resolveDate) ?? 0;
+      if (evaluatedForExpiry >= CRYPTO_STRIKE_CAP_PER_EXPIRY) {
+        cryptoStrikeCappedSkipped++;
+        continue;
+      }
+      cryptoStrikeEvaluatedPerExpiry.set(market.resolveDate, evaluatedForExpiry + 1);
+    }
     try {
       const sentiment = await evaluateSentiment(market, beforeDate);
       const predictedYes = sentiment.probability >= 0.5;
@@ -266,6 +285,7 @@ async function runBacktest(): Promise<void> {
   console.log(`Skipped (no settled 0/1 winner in outcomePrices): ${skippedNoWinner}`);
   console.log(`Skipped (no resolveDate to bound the search): ${skippedNoResolveDate}`);
   console.log(`Errored (Jev/news call threw, excluded from all counts below): ${errorCount}`);
+  console.log(`Skipped (crypto-strike, capped at ${CRYPTO_STRIKE_CAP_PER_EXPIRY} evaluations per distinct resolveDate to avoid spending budget on correlated ladder rungs): ${cryptoStrikeCappedSkipped}`);
   console.log(
     `\nSentiment strategy (markets with real news signal only): ${withSignalCorrect}/${withSignalTotal} correct`
   );
@@ -276,7 +296,7 @@ async function runBacktest(): Promise<void> {
     `  - Other-asset price-threshold (stocks/commodities, e.g. "Will Coinbase (COIN) hit (HIGH) $200 in September?" -- NOT genuine event/news questions, same structural task as crypto-strike): ${otherStrikeCorrect}/${otherStrikeTotal} correct${otherStrikeTotal > 0 ? ` (${((otherStrikeCorrect / otherStrikeTotal) * 100).toFixed(1)}%)` : ''}, ${otherStrikeExpiries.size} distinct resolveDate timestamp(s)`
   );
   console.log(
-    `  - Genuine independent event/news markets (neither of the above -- elections, approvals, geopolitical events, etc): ${genuineEventCorrect}/${genuineEventTotal} correct${genuineEventTotal > 0 ? ` (${((genuineEventCorrect / genuineEventTotal) * 100).toFixed(1)}%)` : ''}, ${genuineEventExpiries.size} distinct resolveDate timestamp(s)`
+    `  - Genuine independent event/news markets (neither of the above -- elections, approvals, geopolitical events, etc): ${genuineEventCorrect}/${genuineEventTotal} correct${genuineEventTotal > 0 ? ` (${((genuineEventCorrect / genuineEventTotal) * 100).toFixed(1)}%)` : ''}, ${genuineEventExpiries.size} distinct resolveDate timestamp(s). *** DO NOT TRUST THIS NUMBER AS A PREDICTIVE HIT-RATE. *** Confirmed live (2026-09-22): resolveDate for administratively-resolved event markets often lands well after the real-world outcome was already public (e.g. a market resolving on inauguration day gets judged on a same-day "X sworn in" headline). before:resolveDate is a leakage-safe cutoff ONLY for markets whose resolution IS the real-world moment (e.g. hourly crypto strikes) -- see google-news-rss.ts's SearchOptions doc comment. This number reflects Jev reading already-public outcomes back, not prediction, until a properly-lagged cutoff (resolveDate minus a real margin, not resolveDate itself) is implemented and re-validated.`
   );
   console.log(
     `  - Combined (all three buckets, for continuity with prior reporting -- NOT a single coherent task, see buckets above): ${withSignalCorrect}/${withSignalTotal} correct${withSignalTotal > 0 ? ` (${((withSignalCorrect / withSignalTotal) * 100).toFixed(1)}%)` : ''}`
