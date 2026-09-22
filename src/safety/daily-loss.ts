@@ -25,12 +25,12 @@ export class DailyLossTracker {
 
   recordLoss(amount: number): void {
     this.resetIfNewDay();
-    this.state.dailyLoss += amount;
+    this.state.dailyLoss -= amount;
   }
 
   recordGain(amount: number): void {
     this.resetIfNewDay();
-    this.state.dailyLoss = Math.min(0, this.state.dailyLoss - amount);
+    this.state.dailyLoss = Math.min(0, this.state.dailyLoss + amount);
   }
 
   checkDailyLoss(bankroll: number): SafetyCheckResult {
