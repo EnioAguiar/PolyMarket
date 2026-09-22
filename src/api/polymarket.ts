@@ -9,12 +9,17 @@ export async function fetchMarkets(params: {
   closed?: boolean;
   minEndDate?: Date;
   maxEndDate?: Date;
+  order?: string;
+  ascending?: boolean;
 } = {}): Promise<Market[]> {
   const searchParams = new URLSearchParams();
   
   if (params.active !== false) searchParams.set('active', 'true');
-  if (params.closed !== false) searchParams.set('closed', 'false');
+  if (params.closed === true) searchParams.set('closed', 'true');
+  else if (params.closed !== false) searchParams.set('closed', 'false');
   if (params.limit) searchParams.set('limit', String(params.limit));
+  if (params.order) searchParams.set('order', params.order);
+  if (params.ascending !== undefined) searchParams.set('ascending', String(params.ascending));
   
   // Date filtering using API's native end_date_min/end_date_max
   if (params.minEndDate) {
