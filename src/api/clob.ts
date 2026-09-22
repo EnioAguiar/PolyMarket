@@ -16,6 +16,7 @@ export interface OrderExecutionResult {
   orderID?: string;
   txHash?: string;
   executedPrice?: number;
+  status?: string;
   reason: string;
 }
 
@@ -207,7 +208,8 @@ export async function placeMarketOrder(
       success: true,
       orderID: result.orderID,
       txHash: result.transactionsHashes?.[0],
-      reason: 'Market order filled at market price',
+      status: result.status,
+      reason: `Market order accepted by CLOB (status: ${result.status})`,
     };
   } catch (error) {
     logger.error({ tokenId, side, amount, error }, 'Market order failed');
@@ -257,7 +259,8 @@ export async function placeLimitOrder(
       orderID: result.orderID,
       txHash: result.transactionsHashes?.[0],
       executedPrice: price,
-      reason: `Limit order posted at ${price}`,
+      status: result.status,
+      reason: `Limit order posted at ${price} (status: ${result.status})`,
     };
   } catch (error) {
     logger.error({ tokenId, side, price, size, error }, 'Limit order failed');
