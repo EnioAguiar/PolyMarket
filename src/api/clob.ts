@@ -180,6 +180,16 @@ export async function placeMarketOrder(
   const logger = getLogger();
   const client = getClobClient();
 
+  const requiredAmount = amount;
+  const balance = await getPUSDBalance();
+  if (balance < requiredAmount) {
+    logger.error({ tokenId, balance, requiredAmount }, 'Insufficient pUSD balance for order');
+    return {
+      success: false,
+      reason: `Insufficient balance: have ${balance}, need ${requiredAmount}`,
+    };
+  }
+
   try {
     const orderSide = side === 'BUY' ? Side.BUY : Side.SELL;
 
@@ -202,6 +212,28 @@ export async function placeMarketOrder(
         orderID: result.orderID,
         reason: result.errorMsg || 'Market order rejected by CLOB (no error message returned)',
       };
+    }
+
+    if (result.transactionsHashes?.[0]) {
+      try {
+        const publicClient = createSharedPublicClient();
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: result.transactionsHashes[0] as `0x${string}`,
+          timeout: 30_000,
+        });
+        if (receipt.status !== 'success') {
+          logger.error({ tokenId, txHash: result.transactionsHashes[0], receipt }, 'Order transaction reverted on-chain');
+          return {
+            success: false,
+            orderID: result.orderID,
+            txHash: result.transactionsHashes[0],
+            status: result.status,
+            reason: `Transaction reverted on-chain (status: ${receipt.status})`,
+          };
+        }
+      } catch (error) {
+        logger.warn({ tokenId, txHash: result.transactionsHashes[0], error }, 'Could not confirm transaction on-chain within timeout — CLOB accepted it, on-chain status unknown');
+      }
     }
 
     return {
@@ -229,6 +261,16 @@ export async function placeLimitOrder(
   const logger = getLogger();
   const client = getClobClient();
 
+  const requiredAmount = price * size;
+  const balance = await getPUSDBalance();
+  if (balance < requiredAmount) {
+    logger.error({ tokenId, balance, requiredAmount }, 'Insufficient pUSD balance for order');
+    return {
+      success: false,
+      reason: `Insufficient balance: have ${balance}, need ${requiredAmount}`,
+    };
+  }
+
   try {
     const orderSide = side === 'BUY' ? Side.BUY : Side.SELL;
 
@@ -252,6 +294,28 @@ export async function placeLimitOrder(
         orderID: result.orderID,
         reason: result.errorMsg || 'Limit order rejected by CLOB (no error message returned)',
       };
+    }
+
+    if (result.transactionsHashes?.[0]) {
+      try {
+        const publicClient = createSharedPublicClient();
+        const receipt = await publicClient.waitForTransactionReceipt({
+          hash: result.transactionsHashes[0] as `0x${string}`,
+          timeout: 30_000,
+        });
+        if (receipt.status !== 'success') {
+          logger.error({ tokenId, txHash: result.transactionsHashes[0], receipt }, 'Order transaction reverted on-chain');
+          return {
+            success: false,
+            orderID: result.orderID,
+            txHash: result.transactionsHashes[0],
+            status: result.status,
+            reason: `Transaction reverted on-chain (status: ${receipt.status})`,
+          };
+        }
+      } catch (error) {
+        logger.warn({ tokenId, txHash: result.transactionsHashes[0], error }, 'Could not confirm transaction on-chain within timeout — CLOB accepted it, on-chain status unknown');
+      }
     }
 
     return {
