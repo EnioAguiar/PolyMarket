@@ -1,11 +1,18 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fetchArticleText } from '../src/research/crawl4ai.js';
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
+
+// Mirrors crawl4ai.ts's own PYTHON_BIN resolution: prefer the project venv
+// (has crawl4ai installed) over bare `python3` (generally does not), with
+// a PYTHON_BIN env override. Computed the same way here so this assertion
+// tracks real environment state instead of pinning a stale hardcoded value.
+const expectedPythonBin = process.env.PYTHON_BIN ?? (existsSync('.venv/bin/python3') ? '.venv/bin/python3' : 'python3');
 
 interface FakeChildProcess extends EventEmitter {
   stdout: EventEmitter;
@@ -36,7 +43,7 @@ describe('fetchArticleText', () => {
     const text = await resultPromise;
     expect(text).toBe('Article body text.');
     expect(spawn).toHaveBeenCalledWith(
-      'python3',
+      expectedPythonBin,
       ['scripts/crawl4ai_article.py', '--url', 'https://example.com/article'],
       expect.objectContaining({ timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] })
     );

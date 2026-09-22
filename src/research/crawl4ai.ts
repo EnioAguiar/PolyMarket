@@ -1,6 +1,16 @@
 import { spawn } from 'child_process';
+import { existsSync } from 'node:fs';
 import { SourceCategory } from '../types/source.js';
 import type { ResearchSource, ResearchSignal } from './interface.js';
+
+// Prefer this project's own venv (has crawl4ai installed) over the bare
+// system `python3`, which generally does NOT have crawl4ai importable and
+// silently degrades every call to the headline-only fallback path
+// (confirmed live: 0/121 article fetches succeeded before this fix, all
+// judged on RSS headline text alone instead of full article text).
+// PYTHON_BIN lets a deploy without a venv (e.g. crawl4ai installed
+// globally) override this.
+const PYTHON_BIN = process.env.PYTHON_BIN ?? (existsSync('.venv/bin/python3') ? '.venv/bin/python3' : 'python3');
 
 export class Crawl4AIWebAdapter implements ResearchSource {
   id = 'crawl4ai_web';
@@ -21,7 +31,7 @@ export class Crawl4AIWebAdapter implements ResearchSource {
         '--limit', '10'
       ];
 
-      const proc = spawn('python3', args, {
+      const proc = spawn(PYTHON_BIN, args, {
         timeout: this.timeout,
         stdio: ['ignore', 'pipe', 'pipe']
       });
@@ -139,7 +149,7 @@ export async function fetchArticleText(url: string): Promise<string> {
       '--url', url
     ];
 
-    const proc = spawn('python3', args, {
+    const proc = spawn(PYTHON_BIN, args, {
       timeout: 30000,
       stdio: ['ignore', 'pipe', 'pipe']
     });
