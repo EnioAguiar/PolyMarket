@@ -76,9 +76,12 @@ describe('handleMarketResolved PnL computation', () => {
     const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
     vi.mocked(getPUSDBalance).mockResolvedValue(1234);
 
-    // Polymarket's real API sends title-case winning_outcome ("Yes"/"No"),
-    // not the uppercase 'YES' bet.side literal -- this must still match.
-    await handleMarketResolved('m1', 'Yes', cycleManager, fakeSafetyModule, silentLogger);
+    // Polymarket's real market_resolved event carries an exact winning_asset_id
+    // token identifier; that identity match is the primary comparison, not a
+    // label guess. winningOutcome ("Yes") is still passed through for the
+    // human-readable label stored by resolveBet(), but the mismatched casing
+    // versus bet.side ('YES') must not affect the outcome now.
+    await handleMarketResolved('m1', 'Yes', 'a1', cycleManager, fakeSafetyModule, silentLogger);
 
     // size / odds - size = 100 / 0.5 - 100 = 100
     expect(recordTrade).toHaveBeenCalledWith(100, 1234);
@@ -94,7 +97,9 @@ describe('handleMarketResolved PnL computation', () => {
     const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
     vi.mocked(getPUSDBalance).mockResolvedValue(500);
 
-    await handleMarketResolved('m2', 'No', cycleManager, fakeSafetyModule, silentLogger);
+    // 'a-other' does not match the bet's assetId ('a2') -- exact asset-ID
+    // mismatch means lost, regardless of the (here matching) outcome string.
+    await handleMarketResolved('m2', 'No', 'a-other', cycleManager, fakeSafetyModule, silentLogger);
 
     expect(recordTrade).toHaveBeenCalledWith(-100, 500);
   });
@@ -107,7 +112,7 @@ describe('handleMarketResolved PnL computation', () => {
     const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
     vi.mocked(getPUSDBalance).mockResolvedValue(0);
 
-    await handleMarketResolved('m3', 'YES', cycleManager, fakeSafetyModule, silentLogger);
+    await handleMarketResolved('m3', 'YES', 'a3', cycleManager, fakeSafetyModule, silentLogger);
 
     expect(recordTrade).not.toHaveBeenCalled();
     // The bet itself is still resolved -- its PnL came from the bet's own
@@ -133,7 +138,7 @@ describe('handleMarketResolved PnL computation', () => {
     const safetyModule = new SafetyModule(config, initialState, 1000);
     vi.mocked(getPUSDBalance).mockResolvedValue(0);
 
-    await handleMarketResolved('m4', 'YES', cycleManager, safetyModule, silentLogger);
+    await handleMarketResolved('m4', 'YES', 'a4', cycleManager, safetyModule, silentLogger);
 
     expect(safetyModule.isKillSwitchActive()).toBe(false);
     expect(safetyModule.getState().isKillSwitchActive).toBe(false);
@@ -146,10 +151,27 @@ describe('handleMarketResolved PnL computation', () => {
     const recordTrade = vi.fn();
     const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
 
-    await handleMarketResolved('does-not-exist', 'YES', cycleManager, fakeSafetyModule, silentLogger);
+    await handleMarketResolved('does-not-exist', 'YES', 'a-none', cycleManager, fakeSafetyModule, silentLogger);
 
     expect(resolveBetSpy).not.toHaveBeenCalled();
     expect(recordTrade).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the case-insensitive outcome-string comparison when winningAssetId is empty', async () => {
+    const cycleManager = createCycleManager();
+    cycleManager.addBet({ marketId: 'm5', assetId: 'a5', side: 'YES', odds: 0.5, size: 100 });
+
+    const recordTrade = vi.fn();
+    const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
+    vi.mocked(getPUSDBalance).mockResolvedValue(999);
+
+    // winningAssetId is empty (defensive fallback path, e.g. an upstream
+    // event that omits it) -- 'Yes' still matches bet.side ('YES')
+    // case-insensitively even though the bet's assetId ('a5') is never
+    // consulted here.
+    await handleMarketResolved('m5', 'Yes', '', cycleManager, fakeSafetyModule, silentLogger);
+
+    expect(recordTrade).toHaveBeenCalledWith(100, 999);
   });
 });
 

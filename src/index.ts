@@ -150,7 +150,7 @@ function handleWsEvent(event: WsEvent, logger: ReturnType<typeof getLogger>): vo
     case 'market_resolved': {
       const resolvedEvent = event as WsMarketResolvedEvent;
       if (cycleManager && safetyModule) {
-        handleMarketResolved(resolvedEvent.market, resolvedEvent.winning_outcome, cycleManager, safetyModule, logger)
+        handleMarketResolved(resolvedEvent.market, resolvedEvent.winning_outcome, resolvedEvent.winning_asset_id, cycleManager, safetyModule, logger)
           .catch((error) => logger.error({ error, marketId: resolvedEvent.market }, 'Failed to record market resolution'));
       }
       break;

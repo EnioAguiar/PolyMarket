@@ -220,6 +220,7 @@ export async function evaluateMarketForWebSocket(
 export async function handleMarketResolved(
   marketId: string,
   winningOutcome: string,
+  winningAssetId: string,
   cycleManager: CycleManager,
   safetyModule: SafetyModule,
   logger: pino.Logger
@@ -230,12 +231,19 @@ export async function handleMarketResolved(
     return;
   }
   const bet = bets[0];
-  // Polymarket's WS market_resolved event sends winning_outcome in title
-  // case (e.g. "Yes"/"No"), while bet.side is always the uppercase literal
-  // 'YES' (the bot only ever buys YES shares — see evaluateMarketForWebSocket).
-  // A case-sensitive comparison here would misjudge every winning bet as a
-  // total loss, poisoning the daily-loss tracker with fabricated losses.
-  const won = bet.side.toLowerCase() === winningOutcome.toLowerCase();
+  // Prefer an exact token-ID identity match: winningAssetId is Polymarket's
+  // unambiguous asset identifier, and bet.assetId is recorded from that same
+  // token-ID system at bet time (see evaluateMarketForWebSocket's addBet()
+  // call) — this is identity comparison, not label matching, so it is not
+  // subject to casing/locale/naming drift in outcome labels.
+  // Fall back to the case-insensitive outcome-string comparison only if some
+  // upstream event ever omits winning_asset_id (defensive, not the primary
+  // path): Polymarket's WS event sends winning_outcome in title case (e.g.
+  // "Yes"/"No"), while bet.side is always the uppercase literal 'YES' (the
+  // bot only ever buys YES shares — see evaluateMarketForWebSocket).
+  const won = winningAssetId
+    ? bet.assetId === winningAssetId
+    : bet.side.toLowerCase() === winningOutcome.toLowerCase();
   // Binary market: a winning YES/NO share pays $1, a losing share pays $0.
   // pnl is relative to the bet's own cost (size = $ staked at time of bet).
   const payout = won ? bet.size / bet.odds : 0;
