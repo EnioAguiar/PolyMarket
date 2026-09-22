@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The project's proxy is SOCKS5. `.env` uses a `PROXY_URL` variable (not `HTTP_PROXY`/`HTTPS_PROXY` — setting those literal names makes axios, used internally by `@polymarket/clob-client-v2`, auto-detect them and apply its own broken HTTP-CONNECT-only proxy handling on the SOCKS5 URL, silently breaking auth regardless of any custom agent patch — confirmed by live testing this session, not just by reading source). Any proxy mechanism used MUST handle the `socks5h://` scheme — verified this rules out `global-agent`.
+- The project's proxy is SOCKS5. `.env` uses a `POLYMARKET_PROXY_URL` variable (not `HTTP_PROXY`/`HTTPS_PROXY` — setting those literal names makes axios, used internally by `@polymarket/clob-client-v2`, auto-detect them and apply its own broken HTTP-CONNECT-only proxy handling on the SOCKS5 URL, silently breaking auth regardless of any custom agent patch — confirmed by live testing this session, not just by reading source). Any proxy mechanism used MUST handle the `socks5h://` scheme — verified this rules out `global-agent`.
 - `checkGeoblock()` MUST use `https.request`/`https.get`, never `fetch` — `fetch`/undici does not honor `http.globalAgent`/`https.globalAgent` patches, so a `fetch`-based check would silently measure the wrong egress path.
 - Verified working Polygon RPC URLs (use exactly these): `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org`. Verified broken/unusable, must be removed: `https://polygon.llamarpc.com` (dead), `https://rpc.ankr.com/polygon` (requires an API key this project doesn't have).
 - Do not attempt to proxy viem's RPC calls or any other `fetch`-based traffic — explicitly out of scope (see spec Non-Goals).
@@ -23,7 +23,7 @@
 ### Task 1: Rename the proxy env var, patch `http.globalAgent`/`https.globalAgent` with a SOCKS5-aware proxy agent, remove `global-agent`
 
 **Files:**
-- Modify: `.env` (rename `HTTP_PROXY`/`HTTPS_PROXY` to `PROXY_URL`)
+- Modify: `.env` (rename `HTTP_PROXY`/`HTTPS_PROXY` to `POLYMARKET_PROXY_URL`)
 - Modify: `.env.example` (same rename, with the reasoning documented)
 - Modify: `src/index.ts` (add proxy patch as first lines)
 - Modify: `src/main.ts` (replace `global-agent/bootstrap` import with the same patch)
@@ -44,17 +44,17 @@ Find the `HTTP_PROXY`/`HTTPS_PROXY` lines (if present) or add a new one, replaci
 # socks5h:// URL regardless of any custom agent patched in. Confirmed by
 # live testing this session: setting HTTP_PROXY/HTTPS_PROXY as literal env
 # vars broke CLOB auth every time, with or without a custom agent; renaming
-# to PROXY_URL and reading it explicitly fixed it immediately.
-PROXY_URL=
+# to POLYMARKET_PROXY_URL and reading it explicitly fixed it immediately.
+POLYMARKET_PROXY_URL=
 ```
 
 - [ ] **Step 2: Rename the same variable in `.env` (never read/print its value)**
 
 ```bash
-sed -i 's/^HTTP_PROXY=\(.*\)$/PROXY_URL=\1/; /^HTTPS_PROXY=/d' .env
+sed -i 's/^HTTP_PROXY=\(.*\)$/POLYMARKET_PROXY_URL=\1/; /^HTTPS_PROXY=/d' .env
 ```
 
-Verify success via `grep -c '^PROXY_URL=' .env` (expect `1`) and `grep -c '^HTTP_PROXY=\|^HTTPS_PROXY=' .env` (expect `0`) — never print the matched line's value.
+Verify success via `grep -c '^POLYMARKET_PROXY_URL=' .env` (expect `1`) and `grep -c '^HTTP_PROXY=\|^HTTPS_PROXY=' .env` (expect `0`) — never print the matched line's value.
 
 - [ ] **Step 3: Add the proxy patch to `src/index.ts`**
 
@@ -65,7 +65,7 @@ import { ProxyAgent } from 'proxy-agent';
 import http from 'node:http';
 import https from 'node:https';
 
-const proxyUrl = process.env.PROXY_URL;
+const proxyUrl = process.env.POLYMARKET_PROXY_URL;
 if (proxyUrl) {
   const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
   http.globalAgent = proxyAgent;
@@ -90,7 +90,7 @@ import { ProxyAgent } from 'proxy-agent';
 import http from 'node:http';
 import https from 'node:https';
 
-const proxyUrl = process.env.PROXY_URL;
+const proxyUrl = process.env.POLYMARKET_PROXY_URL;
 if (proxyUrl) {
   const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
   http.globalAgent = proxyAgent;
@@ -117,13 +117,13 @@ Run a throwaway script (delete after, do not commit) that imports the compiled `
 
 ```bash
 git add .env.example src/index.ts src/main.ts package.json package-lock.json
-git commit -m "fix(proxy): rename HTTP_PROXY/HTTPS_PROXY to PROXY_URL and use proxy-agent's getProxyForUrl explicitly
+git commit -m "fix(proxy): rename HTTP_PROXY/HTTPS_PROXY to POLYMARKET_PROXY_URL and use proxy-agent's getProxyForUrl explicitly
 
 Setting literal HTTP_PROXY/HTTPS_PROXY env vars made axios (used internally
 by @polymarket/clob-client-v2) auto-detect them and apply its own
 HTTP-CONNECT-only proxy handling on our socks5h:// URL, breaking CLOB auth
 regardless of any custom http.globalAgent/https.globalAgent patch. Reading
-the proxy URL from a differently-named PROXY_URL variable and passing it to
+the proxy URL from a differently-named POLYMARKET_PROXY_URL variable and passing it to
 ProxyAgent via getProxyForUrl keeps axios from ever seeing those two names."
 ```
 

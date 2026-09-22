@@ -37,7 +37,7 @@ Make the bot's actual trading-relevant outbound traffic (CLOB order submission, 
 
 ### 1. A new env var for the proxy URL, read explicitly — never set as `HTTP_PROXY`/`HTTPS_PROXY`
 
-`.env` / `.env.example`: rename the proxy configuration from `HTTP_PROXY`/`HTTPS_PROXY` to a single `PROXY_URL` variable (same `socks5h://...` value). This is the load-bearing fix from Revision note 2 — as long as literal `HTTP_PROXY`/`HTTPS_PROXY` env vars exist in the process, axios auto-detects and breaks on them regardless of any custom agent. Any other tooling that expects the standard `HTTP_PROXY` name (there is none identified in this codebase — `grep -rn "HTTP_PROXY\|HTTPS_PROXY" src/` only ever appears in the code this spec is replacing) is unaffected by the rename.
+`.env` / `.env.example`: rename the proxy configuration from `HTTP_PROXY`/`HTTPS_PROXY` to a single `POLYMARKET_PROXY_URL` variable (same `socks5h://...` value). This is the load-bearing fix from Revision note 2 — as long as literal `HTTP_PROXY`/`HTTPS_PROXY` env vars exist in the process, axios auto-detects and breaks on them regardless of any custom agent. Any other tooling that expects the standard `HTTP_PROXY` name (there is none identified in this codebase — `grep -rn "HTTP_PROXY\|HTTPS_PROXY" src/` only ever appears in the code this spec is replacing) is unaffected by the rename.
 
 `src/index.ts`: add, as the very first lines of the file (before any other import that could eagerly issue an HTTP request):
 
@@ -46,7 +46,7 @@ import { ProxyAgent } from 'proxy-agent';
 import http from 'node:http';
 import https from 'node:https';
 
-const proxyUrl = process.env.PROXY_URL;
+const proxyUrl = process.env.POLYMARKET_PROXY_URL;
 if (proxyUrl) {
   const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
   http.globalAgent = proxyAgent;
@@ -162,9 +162,9 @@ export function resetSharedPublicClient(): void {
 
 ## Success Criteria
 
-- [ ] `.env` / `.env.example` use `PROXY_URL`, not `HTTP_PROXY`/`HTTPS_PROXY`. `grep -rn "HTTP_PROXY\|HTTPS_PROXY" .env src/` returns nothing.
-- [ ] `src/index.ts` and `src/main.ts` both patch `http.globalAgent`/`https.globalAgent` with `proxy-agent`'s `ProxyAgent` constructed via explicit `getProxyForUrl`, reading `PROXY_URL`, as their first executable statements. `global-agent` is removed from `package.json` and no file imports it.
-- [ ] With `PROXY_URL` set to the real Decodo proxy, `checkGeoblock()`'s reported `ip`/`country` matches the proxy's known exit (India or Romania) — proof the patch is live, not just present in the diff.
+- [ ] `.env` / `.env.example` use `POLYMARKET_PROXY_URL`, not `HTTP_PROXY`/`HTTPS_PROXY`. `grep -rn "HTTP_PROXY\|HTTPS_PROXY" .env src/` returns nothing.
+- [ ] `src/index.ts` and `src/main.ts` both patch `http.globalAgent`/`https.globalAgent` with `proxy-agent`'s `ProxyAgent` constructed via explicit `getProxyForUrl`, reading `POLYMARKET_PROXY_URL`, as their first executable statements. `global-agent` is removed from `package.json` and no file imports it.
+- [ ] With `POLYMARKET_PROXY_URL` set to the real Decodo proxy, `checkGeoblock()`'s reported `ip`/`country` matches the proxy's known exit (India or Romania) — proof the patch is live, not just present in the diff.
 - [ ] `checkGeoblock()` exists in `src/api/geoblock.ts`, uses `https.get` (not `fetch`), runs in `main()` before any live-trading client is created, and gates the live-trading branch.
 - [ ] When geoblocked, the bot logs a clear error, does not call `createClobClient()`, and keeps running.
 - [ ] `createSharedPublicClient()` uses `fallback()` over the 3 verified-working RPC URLs.
