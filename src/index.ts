@@ -22,7 +22,7 @@ import { createClobClient, getPUSDBalance } from './api/clob.js';
 import { checkGeoblock } from './api/geoblock.js';
 import { createCycleManager } from './betting/index.js';
 import type { CycleManager } from './betting/index.js';
-import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram, updateBotStatus } from './api/telegram.js';
+import { initTelegram, isBotPaused, setCycleManager, setSafetyModule, setBankroll, stopTelegram, updateBotStatus, notifyError } from './api/telegram.js';
 
 let isHealthy = false;
 let wsClient: PolymarketWsClient | null = null;
@@ -206,6 +206,7 @@ async function main(): Promise<void> {
       logger.info({ geoblock }, 'Geoblock check');
       if (geoblock.blocked) {
         logger.error({ geoblock }, 'Geoblocked — new orders will be rejected by the CLOB. Trading disabled for this run.');
+        notifyError(`Geoblocked (${geoblock.country}/${geoblock.region}, ip ${geoblock.ip}) — live trading disabled for this run.`);
         geoblocked = true;
       }
     } catch (error) {

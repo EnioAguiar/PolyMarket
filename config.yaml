@@ -1,7 +1,8 @@
 # Polymarket Bot Configuration
 # All configuration is managed through this file (not env vars)
 
-dryRun: false  # true = log decisions only, false = execute real trades
+dryRun: true  # true = log decisions only, false = execute real trades. MUST be explicitly
+              # flipped to false to trade real money — never commit false as the default.
 
 safety:
   maxPositionSizePct: 0.10    # 10% of bankroll per bet (BANK-01)
