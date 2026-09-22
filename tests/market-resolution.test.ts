@@ -76,7 +76,9 @@ describe('handleMarketResolved PnL computation', () => {
     const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
     vi.mocked(getPUSDBalance).mockResolvedValue(1234);
 
-    await handleMarketResolved('m1', 'YES', cycleManager, fakeSafetyModule, silentLogger);
+    // Polymarket's real API sends title-case winning_outcome ("Yes"/"No"),
+    // not the uppercase 'YES' bet.side literal -- this must still match.
+    await handleMarketResolved('m1', 'Yes', cycleManager, fakeSafetyModule, silentLogger);
 
     // size / odds - size = 100 / 0.5 - 100 = 100
     expect(recordTrade).toHaveBeenCalledWith(100, 1234);
@@ -92,7 +94,7 @@ describe('handleMarketResolved PnL computation', () => {
     const fakeSafetyModule = { recordTrade } as unknown as SafetyModule;
     vi.mocked(getPUSDBalance).mockResolvedValue(500);
 
-    await handleMarketResolved('m2', 'NO', cycleManager, fakeSafetyModule, silentLogger);
+    await handleMarketResolved('m2', 'No', cycleManager, fakeSafetyModule, silentLogger);
 
     expect(recordTrade).toHaveBeenCalledWith(-100, 500);
   });

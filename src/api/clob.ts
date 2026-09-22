@@ -183,10 +183,19 @@ export async function placeMarketOrder(
   const requiredAmount = amount;
   const balance = await getPUSDBalance();
   if (balance < requiredAmount) {
-    logger.error({ tokenId, balance, requiredAmount }, 'Insufficient pUSD balance for order');
+    // getPUSDBalance() returns the sentinel 0 on any RPC/read failure rather
+    // than throwing (see getPUSDBalance() above). A balance of exactly 0 is
+    // therefore ambiguous: it could be a genuinely empty wallet, or a
+    // transient RPC blip. Either way we must NOT place the order (fail
+    // safe), but the reported reason should not claim the wallet is
+    // confirmed empty when the read may simply have failed.
+    const reason = balance === 0
+      ? `Insufficient balance: balance read as 0 (either a genuinely empty wallet or a failed/unavailable RPC read — see logs), need ${requiredAmount}`
+      : `Insufficient balance: have ${balance}, need ${requiredAmount}`;
+    logger.error({ tokenId, balance, requiredAmount }, 'Insufficient pUSD balance for order (or balance read failed)');
     return {
       success: false,
-      reason: `Insufficient balance: have ${balance}, need ${requiredAmount}`,
+      reason,
     };
   }
 
@@ -264,10 +273,18 @@ export async function placeLimitOrder(
   const requiredAmount = price * size;
   const balance = await getPUSDBalance();
   if (balance < requiredAmount) {
-    logger.error({ tokenId, balance, requiredAmount }, 'Insufficient pUSD balance for order');
+    // See placeMarketOrder() above: getPUSDBalance() returns the sentinel 0
+    // on any RPC/read failure rather than throwing, so a balance of exactly
+    // 0 is ambiguous (genuinely empty wallet vs. failed read). We still
+    // refuse to place the order either way (fail safe), but avoid claiming
+    // the wallet is confirmed empty when the read may simply have failed.
+    const reason = balance === 0
+      ? `Insufficient balance: balance read as 0 (either a genuinely empty wallet or a failed/unavailable RPC read — see logs), need ${requiredAmount}`
+      : `Insufficient balance: have ${balance}, need ${requiredAmount}`;
+    logger.error({ tokenId, balance, requiredAmount }, 'Insufficient pUSD balance for order (or balance read failed)');
     return {
       success: false,
-      reason: `Insufficient balance: have ${balance}, need ${requiredAmount}`,
+      reason,
     };
   }
 
