@@ -48,6 +48,8 @@ export async function fetchMarkets(params: {
     active: raw.active ?? true,
     closed: raw.closed ?? false,
     resolveDate: raw.endDate || raw.resolution?.resolveDate || raw.resolve_date,
+    outcomes: raw.outcomes ? JSON.parse(raw.outcomes) : [],
+    outcomePrices: raw.outcomePrices ? JSON.parse(raw.outcomePrices).map(Number) : [],
   }));
 }
 

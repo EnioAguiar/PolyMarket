@@ -8,6 +8,8 @@ export interface Market {
   active: boolean;
   closed: boolean;
   resolveDate?: string; // ISO date for resolution
+  outcomes: string[];
+  outcomePrices: number[];
 }
 
 // Orderbook entry
