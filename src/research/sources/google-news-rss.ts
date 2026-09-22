@@ -15,8 +15,9 @@ export interface SearchOptions {
 // is genuinely close to the real-world moment the outcome became known --
 // true for an hourly crypto price-threshold check (resolveDate IS the
 // instant of resolution), false for most administratively-resolved event
-// markets. Real example that slipped through both this filter's day-level
-// `before:` operator AND the defensive pubDate check below: "Will Kamala
+// markets. Real example: this filter worked exactly as designed and still
+// let the answer through, because the cutoff itself was wrong, not the
+// filtering -- "Will Kamala
 // Harris win the 2024 Democratic Presidential Nomination?" (resolveDate
 // 2024-08-19) was judged on the real, correctly-pre-cutoff-dated headline
 // "It's official: Kamala Harris becomes Democrats' 2024 presidential

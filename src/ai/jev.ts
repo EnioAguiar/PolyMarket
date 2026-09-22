@@ -61,9 +61,11 @@ export async function judgeNoul(state: string, instructions: string): Promise<Je
     const body = await response.text();
     lastError = new Error(`TypeSafe API error: ${response.status} ${body}`);
     if (response.status < 500 || attempt === maxAttempts) throw lastError;
-    const { promise, resolve } = Promise.withResolvers<void>();
-    setTimeout(resolve, 500 * 2 ** (attempt - 1));
-    await promise;
+    // Promise.withResolvers() (the project's usual preference) requires
+    // Node 22+; package.json's engines floor is >=20.10.0 and Railway's
+    // Railpack builder doesn't pin a specific Node version, so this stays
+    // on the plain executor form deliberately (review finding, 2026-09-22).
+    await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** (attempt - 1)));
   }
   throw lastError;
 }
