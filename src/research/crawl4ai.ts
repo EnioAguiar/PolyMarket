@@ -120,3 +120,48 @@ export class Crawl4AIWebAdapter implements ResearchSource {
     };
   }
 }
+
+/**
+ * Fetch the full markdown text of a single article/page URL via crawl4ai.
+ * No LLM extraction strategy — plain markdown conversion, since Jev (not
+ * crawl4ai) does the semantic judgment downstream.
+ */
+export async function fetchArticleText(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      'scripts/crawl4ai_article.py',
+      '--url', url
+    ];
+
+    const proc = spawn('python3', args, {
+      timeout: 30000,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    proc.stdout?.on('data', (data) => { stdout += data.toString(); });
+    proc.stderr?.on('data', (data) => { stderr += data.toString(); });
+
+    proc.on('close', (code) => {
+      if (code !== 0) {
+        reject(new Error(`fetchArticleText failed: ${stderr || 'non-zero exit'}`));
+        return;
+      }
+
+      try {
+        const result = JSON.parse(stdout);
+        if (result.error) {
+          reject(new Error(`fetchArticleText failed: ${result.error}`));
+          return;
+        }
+        resolve(result.markdown || '');
+      } catch (err) {
+        reject(new Error(`Failed to parse fetchArticleText output: ${err}`));
+      }
+    });
+
+    proc.on('error', reject);
+  });
+}
