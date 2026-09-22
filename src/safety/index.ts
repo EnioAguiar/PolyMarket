@@ -4,6 +4,7 @@ import { checkPositionSize, getMaxPositionSize } from './position-limits.js';
 import { DailyLossTracker } from './daily-loss.js';
 import { DrawdownTracker } from './drawdown.js';
 import { isDryRun } from '../config/index.js';
+import { saveSafetyState } from './persistence.js';
 
 /**
  * Main safety module class (per D-03: dedicated module separate from execution flow)
@@ -67,6 +68,7 @@ export class SafetyModule {
     }
     this.drawdownTracker.recordTradeResult(newBankroll, pnl);
     this.bankroll = newBankroll;
+    saveSafetyState(this.getState());
   }
 
   /**
@@ -84,6 +86,7 @@ export class SafetyModule {
       dailyLoss: this.dailyLossTracker.getDailyLoss(),
       totalDrawdown: this.drawdownTracker.getDrawdown(this.bankroll),
       isKillSwitchActive: this.drawdownTracker.isKillSwitchActive(),
+      peakBankroll: this.drawdownTracker.getPeakBankroll(),
     };
   }
 
@@ -99,5 +102,6 @@ export class SafetyModule {
    */
   resetKillSwitch(): void {
     this.drawdownTracker.resetKillSwitch();
+    saveSafetyState(this.getState());
   }
 }

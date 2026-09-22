@@ -18,6 +18,7 @@ import { logWsEvent } from './websocket/events.js';
 import { evaluateMarketForWebSocket, handleBestBidAskUpdate, handleMarketResolved } from './websocket/integration.js';
 import type { Config, SafetyState } from './types/index.js';
 import { SafetyModule } from './safety/index.js';
+import { loadSafetyState } from './safety/persistence.js';
 import { createClobClient, getPUSDBalance } from './api/clob.js';
 import { checkGeoblock } from './api/geoblock.js';
 import { createCycleManager } from './betting/index.js';
@@ -182,11 +183,7 @@ async function main(): Promise<void> {
       cycleWait24hMs: 24 * 60 * 60 * 1000,
     });
 
-    const initialState: SafetyState = {
-      dailyLoss: 0,
-      totalDrawdown: 0,
-      isKillSwitchActive: false,
-    };
+    const initialState: SafetyState = loadSafetyState();
     safetyModule = new SafetyModule(config, initialState, 0);
 
     setSafetyModule(safetyModule);

@@ -54,6 +54,7 @@ export interface SafetyState {
   dailyLoss: number;
   totalDrawdown: number;
   isKillSwitchActive: boolean;
+  peakBankroll?: number;
   lastTradeTime?: Date;
 }
 

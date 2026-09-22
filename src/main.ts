@@ -13,6 +13,7 @@ import { initLogger, getLogger, logBetDecision } from './logging/index.js';
 import { fetchMarkets, filterByCategory, filterByTimeHorizon, getYesTokenId } from './api/polymarket.js';
 import { getOrderBook, getMidPrice, createClobClient, hasLiquidity, getPUSDBalance } from './api/clob.js';
 import { SafetyModule } from './safety/index.js';
+import { loadSafetyState } from './safety/persistence.js';
 import type { Market, SafetyState } from './types/index.js';
 
 export async function runBotCycle(): Promise<void> {
@@ -30,11 +31,7 @@ export async function runBotCycle(): Promise<void> {
     logger.info({ realBalance, effectiveBankroll }, 'Wallet balance loaded');
   }
   
-  const initialState: SafetyState = {
-    dailyLoss: 0,
-    totalDrawdown: 0,
-    isKillSwitchActive: false,
-  };
+  const initialState: SafetyState = loadSafetyState();
   const safetyModule = new SafetyModule(config, initialState, effectiveBankroll);
   
   if (safetyModule.isKillSwitchActive()) {

@@ -12,12 +12,15 @@ export class DrawdownTracker {
   constructor(config: SafetyModuleConfig, initialState: SafetyState, initialBankroll: number) {
     this.config = config;
     this.state = initialState;
-    this.peakBankroll = initialBankroll;
+    this.peakBankroll = initialState.peakBankroll && initialState.peakBankroll > initialBankroll
+      ? initialState.peakBankroll
+      : initialBankroll;
   }
 
   updatePeak(currentBankroll: number): void {
     if (currentBankroll > this.peakBankroll) {
       this.peakBankroll = currentBankroll;
+      this.state.peakBankroll = this.peakBankroll;
     }
   }
 
@@ -72,5 +75,9 @@ export class DrawdownTracker {
 
   resetKillSwitch(): void {
     this.state.isKillSwitchActive = false;
+  }
+
+  getPeakBankroll(): number {
+    return this.peakBankroll;
   }
 }
