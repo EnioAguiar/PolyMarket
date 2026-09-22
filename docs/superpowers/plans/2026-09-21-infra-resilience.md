@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The project's proxy is SOCKS5 (`.env`: `HTTP_PROXY`/`HTTPS_PROXY` = `socks5h://...`). Any proxy mechanism used MUST handle this scheme — verified this rules out `global-agent`.
+- The project's proxy is SOCKS5. `.env` uses a `PROXY_URL` variable (not `HTTP_PROXY`/`HTTPS_PROXY` — setting those literal names makes axios, used internally by `@polymarket/clob-client-v2`, auto-detect them and apply its own broken HTTP-CONNECT-only proxy handling on the SOCKS5 URL, silently breaking auth regardless of any custom agent patch — confirmed by live testing this session, not just by reading source). Any proxy mechanism used MUST handle the `socks5h://` scheme — verified this rules out `global-agent`.
 - `checkGeoblock()` MUST use `https.request`/`https.get`, never `fetch` — `fetch`/undici does not honor `http.globalAgent`/`https.globalAgent` patches, so a `fetch`-based check would silently measure the wrong egress path.
 - Verified working Polygon RPC URLs (use exactly these): `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org`. Verified broken/unusable, must be removed: `https://polygon.llamarpc.com` (dead), `https://rpc.ankr.com/polygon` (requires an API key this project doesn't have).
 - Do not attempt to proxy viem's RPC calls or any other `fetch`-based traffic — explicitly out of scope (see spec Non-Goals).
@@ -20,34 +20,62 @@
 
 ---
 
-### Task 1: Patch `http.globalAgent`/`https.globalAgent` with a SOCKS5-aware proxy agent; remove `global-agent`
+### Task 1: Rename the proxy env var, patch `http.globalAgent`/`https.globalAgent` with a SOCKS5-aware proxy agent, remove `global-agent`
 
 **Files:**
+- Modify: `.env` (rename `HTTP_PROXY`/`HTTPS_PROXY` to `PROXY_URL`)
+- Modify: `.env.example` (same rename, with the reasoning documented)
 - Modify: `src/index.ts` (add proxy patch as first lines)
 - Modify: `src/main.ts` (replace `global-agent/bootstrap` import with the same patch)
 - Modify: `package.json` (remove `global-agent` dependency)
 
 **Interfaces:** None new — this is a side-effecting startup patch, no exported function.
 
-- [ ] **Step 1: Add the proxy patch to `src/index.ts`**
+- [ ] **Step 1: Rename the env var in `.env.example`**
 
-Current first line of `src/index.ts` is `import http from 'http';` (used later for the health-check server). Insert before it:
+Find the `HTTP_PROXY`/`HTTPS_PROXY` lines (if present) or add a new one, replacing them with:
+
+```
+# SOCKS5 proxy URL (e.g. socks5h://user:pass@host:port). Read explicitly by
+# src/index.ts and src/main.ts via ProxyAgent's getProxyForUrl — deliberately
+# NOT named HTTP_PROXY/HTTPS_PROXY, because axios (used internally by
+# @polymarket/clob-client-v2) auto-detects those two exact names and applies
+# its own HTTP-CONNECT-only proxy handling, which silently breaks on a
+# socks5h:// URL regardless of any custom agent patched in. Confirmed by
+# live testing this session: setting HTTP_PROXY/HTTPS_PROXY as literal env
+# vars broke CLOB auth every time, with or without a custom agent; renaming
+# to PROXY_URL and reading it explicitly fixed it immediately.
+PROXY_URL=
+```
+
+- [ ] **Step 2: Rename the same variable in `.env` (never read/print its value)**
+
+```bash
+sed -i 's/^HTTP_PROXY=\(.*\)$/PROXY_URL=\1/; /^HTTPS_PROXY=/d' .env
+```
+
+Verify success via `grep -c '^PROXY_URL=' .env` (expect `1`) and `grep -c '^HTTP_PROXY=\|^HTTPS_PROXY=' .env` (expect `0`) — never print the matched line's value.
+
+- [ ] **Step 3: Add the proxy patch to `src/index.ts`**
+
+Current first line of `src/index.ts` is `import http from 'http';` (used later for the health-check server). Replace it with:
 
 ```typescript
 import { ProxyAgent } from 'proxy-agent';
 import http from 'node:http';
 import https from 'node:https';
 
-if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
-  const proxyAgent = new ProxyAgent();
+const proxyUrl = process.env.PROXY_URL;
+if (proxyUrl) {
+  const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
   http.globalAgent = proxyAgent;
   https.globalAgent = proxyAgent;
 }
 ```
 
-Note: `src/index.ts` already has `import http from 'http';` further down for the health-check server (`http.IncomingMessage`, `http.ServerResponse`, etc.) — replace that existing import with the `node:http` one above rather than having two separate imports of the same module under different specifiers. Locate the existing `import http from 'http';` line by content (there is exactly one) and remove it once the new block above supplies the same `http` binding.
+Passing `getProxyForUrl` explicitly (not constructing `new ProxyAgent()` bare) is required — it's what keeps `HTTP_PROXY`/`HTTPS_PROXY` out of the picture entirely. `src/index.ts` has exactly one existing `import http from 'http';` line (used later for `http.IncomingMessage`/`http.ServerResponse` in the health-check server) — this replaces it, don't leave a duplicate `http` binding.
 
-- [ ] **Step 2: Replace the `global-agent` import in `src/main.ts`**
+- [ ] **Step 4: Replace the `global-agent` import in `src/main.ts`**
 
 Change line 1 of `src/main.ts` from:
 
@@ -62,33 +90,41 @@ import { ProxyAgent } from 'proxy-agent';
 import http from 'node:http';
 import https from 'node:https';
 
-if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
-  const proxyAgent = new ProxyAgent();
+const proxyUrl = process.env.PROXY_URL;
+if (proxyUrl) {
+  const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
   http.globalAgent = proxyAgent;
   https.globalAgent = proxyAgent;
 }
 ```
 
-`src/main.ts` doesn't otherwise import `http`/`https` today — verify with `grep -n "^import" src/main.ts` before editing, and if that changes before you get to this step, add the block without creating a duplicate binding.
+`src/main.ts` doesn't otherwise import `http`/`https` today — verify with `grep -n "^import" src/main.ts` before editing.
 
-- [ ] **Step 3: Remove the `global-agent` dependency**
+- [ ] **Step 5: Remove the `global-agent` dependency**
 
-In `package.json`, delete the line `"global-agent": "^4.1.3",` from `dependencies`. Run `grep -rn "global-agent" src/` afterward — expect zero matches (both call sites were replaced in Steps 1-2).
+In `package.json`, delete the line `"global-agent": "^4.1.3",` from `dependencies`. Run `grep -rn "global-agent" src/` afterward — expect zero matches.
 
-- [ ] **Step 4: Install and verify**
+- [ ] **Step 6: Install and verify**
 
-Run: `npm install` (updates the lockfile to drop `global-agent`), then `npm run build`.
-Expected: both pass. `node_modules/global-agent` may still be present transitively or not at all — what matters is `package-lock.json` no longer lists it as a direct dependency and `src/` has zero references.
+Run: `npm install`, then `npm run build`.
+Expected: both pass.
 
-- [ ] **Step 5: Manual verification that the SOCKS5 patch actually works**
+- [ ] **Step 7: Manual verification that the SOCKS5 patch actually works — this exact scenario was already proven live this session with throwaway scripts; this step reproduces it against the real code**
 
-This can't be a build-time check — it needs a live request. Run a throwaway script (delete after, do not commit) that, after applying the same patch as Step 1, makes an `https.get('https://ipinfo.io/json', ...)` call and prints the response. Compare the reported `ip`/`country` with and without `HTTP_PROXY`/`HTTPS_PROXY` set in the environment. Expected: the IP/country differs when the proxy is active — concrete proof `ProxyAgent` is actually intercepting `https.request`-based traffic, not just present in the diff.
+Run a throwaway script (delete after, do not commit) that imports the compiled `dist/api/clob.js`'s `createClobClient` and `placeMarketOrder` (after the Step 3 patch has run, e.g. by importing `dist/index.js`'s side effects or replicating the same 5-line patch inline), and places a small real order ($1) on a liquid, long-dated market — check the API's `active`/`closed`/`clobTokenIds` fields for a currently-active market rather than reusing a hardcoded token ID, since market state changes over time. Expected: a real `orderID` comes back, no geoblock 403, no auth failure — reproducing this session's already-successful result (`{"success":true,"orderID":"0xcdab1c1d...","status":"delayed"}`).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/index.ts src/main.ts package.json package-lock.json
-git commit -m "fix(proxy): replace global-agent with proxy-agent (SOCKS5-capable) for http.globalAgent/https.globalAgent"
+git add .env.example src/index.ts src/main.ts package.json package-lock.json
+git commit -m "fix(proxy): rename HTTP_PROXY/HTTPS_PROXY to PROXY_URL and use proxy-agent's getProxyForUrl explicitly
+
+Setting literal HTTP_PROXY/HTTPS_PROXY env vars made axios (used internally
+by @polymarket/clob-client-v2) auto-detect them and apply its own
+HTTP-CONNECT-only proxy handling on our socks5h:// URL, breaking CLOB auth
+regardless of any custom http.globalAgent/https.globalAgent patch. Reading
+the proxy URL from a differently-named PROXY_URL variable and passing it to
+ProxyAgent via getProxyForUrl keeps axios from ever seeing those two names."
 ```
 
 ---
