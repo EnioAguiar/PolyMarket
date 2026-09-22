@@ -29,6 +29,7 @@ interface RawTrade {
   timestamp: number;
   title: string;
   slug: string;
+  event_slug: string;
   outcome: string;
   outcome_index: number;
 }
@@ -79,6 +80,7 @@ interface LogicalBet {
   outcomeIndex: number;
   title: string;
   slug: string;
+  eventSlug: string;
   timestamp: number; // last fill's timestamp
   shares: number; // summed
   usdStaked: number; // summed size*price
@@ -113,6 +115,7 @@ function dedupeFills(trades: RawTrade[]): LogicalBet[] {
         outcomeIndex: last.outcome_index,
         title: last.title,
         slug: last.slug,
+        eventSlug: last.event_slug,
         timestamp: last.timestamp,
         shares,
         usdStaked,
@@ -206,14 +209,17 @@ async function fetchOutcomesByCondition(conditionIds: string[]): Promise<Map<str
 const TEAM_MATCHUP_PATTERN = /\bvs\.?\b/i;
 
 async function main(): Promise<void> {
-  // Real testing (2026-09-22) found $5k and $25k thresholds get the
-  // pagination stuck inside single bursts of thousands of fills on
-  // high-frequency micro-markets ("Bitcoin Up or Down" 5-minute markets,
-  // live in-game sports) -- the same short-horizon-market-dominance
-  // pattern found in the news-sentiment backtest. $100k clears that noise
-  // and reaches genuinely old, diverse trades within a handful of pages.
-  const MIN_BET_USD = 100000;
-  const MAX_PAGES = 10; // real data exhausts around page 3-4 (~52 days back) at this threshold
+  // Threshold history (2026-09-22): $100k was chosen while a pagination bug
+  // was still live (cursor pages silently dropped filter_type/filter_amount
+  // /side, so pages after the first re-anchored to the UNFILTERED firehose
+  // feed -- thousands of fills/minute -- which looked like "large trades
+  // cluster into bursts" but was actually the dropped filters, confirmed by
+  // re-testing after the fix: $20k has no such burst and reaches 9 days
+  // back in 8 clean pages). Lowered to $20k for a much bigger, still-clean
+  // sample -- this also stops discarding the mid-size conviction bets
+  // ($20-100k) the whale hypothesis is actually about.
+  const MIN_BET_USD = 20000;
+  const MAX_PAGES = 20; // ~20 * 200 = up to 4000 raw fills, ~3 weeks back at this threshold
   const MIN_AGE_DAYS = 5; // give markets time to actually close/settle
 
   console.log(`Fetching large trades (>= $${MIN_BET_USD}, up to ${MAX_PAGES} pages)...`);
@@ -261,6 +267,14 @@ async function main(): Promise<void> {
   let skippedUnresolved = 0;
   const sports = { staked: 0, pnl: 0, n: 0 };
   const other = { staked: 0, pnl: 0, n: 0 };
+  // Track per-real-world-event aggregates (review finding, 2026-09-22: a
+  // widened run found 26 of 79 scored bets -- a third of the sample -- were
+  // all the same underlying event (one Fed rate decision, split across
+  // "increase 25bps"/"increase 50bps"/"no change"/"decrease 25bps" markets),
+  // which is one real-world coin flip sampled 26 times, not 26 independent
+  // trials. eventSlug (Gamma's real event grouping) detects this
+  // generically instead of requiring manual post-hoc analysis every time.
+  const byEvent = new Map<string, { staked: number; pnl: number; n: number; title: string }>();
 
   for (const c of candidates) {
     const outcome = outcomes.get(c.conditionId);
@@ -284,12 +298,25 @@ async function main(): Promise<void> {
     bucket.staked += c.usdStaked;
     bucket.pnl += pnl;
     bucket.n++;
+    const eventAgg = byEvent.get(c.eventSlug) ?? { staked: 0, pnl: 0, n: 0, title: c.title };
+    eventAgg.staked += c.usdStaked;
+    eventAgg.pnl += pnl;
+    eventAgg.n++;
+    byEvent.set(c.eventSlug, eventAgg);
     console.log(
       `[whale] "${c.title.slice(0, 60)}" wallet=${c.wallet.slice(0, 10)} staked=$${c.usdStaked.toFixed(0)} price=${c.avgPrice.toFixed(2)} ${won ? 'WON' : 'LOST'} pnl=$${pnl.toFixed(0)} tradesBefore=${c.tradesBefore} gapDays=${c.gapDays?.toFixed(1) ?? 'n/a'}`
     );
   }
 
   console.log(`\nScored ${scored} candidates (${skippedUnresolved} skipped: market not yet resolved to a clean 0/1 winner).`);
+  console.log(`Distinct real-world events (by Gamma eventSlug): ${byEvent.size} -- this, not the bet count, is the real sample size for statistical confidence.`);
+  const clustered = [...byEvent.entries()].filter(([, v]) => v.n >= 3).sort((a, b) => b[1].n - a[1].n);
+  if (clustered.length > 0) {
+    console.log(`Events with 3+ correlated bets (same real-world outcome, not independent trials):`);
+    for (const [slug, v] of clustered) {
+      console.log(`  - "${v.title.slice(0, 50)}" (${slug}): ${v.n} bets, staked $${v.staked.toFixed(0)}, P&L $${v.pnl.toFixed(0)}, ROI ${((v.pnl / v.staked) * 100).toFixed(1)}%`);
+    }
+  }
   console.log(`\nOverall: staked $${totalStaked.toFixed(0)}, P&L $${totalPnl.toFixed(0)}, ROI ${totalStaked > 0 ? ((totalPnl / totalStaked) * 100).toFixed(1) : 'n/a'}%`);
   console.log(`  - Team matchups (sports/esports, "X vs Y" pattern), n=${sports.n}: staked $${sports.staked.toFixed(0)}, P&L $${sports.pnl.toFixed(0)}, ROI ${sports.staked > 0 ? ((sports.pnl / sports.staked) * 100).toFixed(1) : 'n/a'}%`);
   console.log(`  - Other markets (politics/macro/events), n=${other.n}: staked $${other.staked.toFixed(0)}, P&L $${other.pnl.toFixed(0)}, ROI ${other.staked > 0 ? ((other.pnl / other.staked) * 100).toFixed(1) : 'n/a'}%`);
