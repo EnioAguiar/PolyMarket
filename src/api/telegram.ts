@@ -118,18 +118,12 @@ export function initTelegram(config: TelegramConfig): Telegraf | null {
 
   bot.command('pause', (ctx) => {
     isPaused = true;
-    if (safetyModuleRef) {
-      safetyModuleRef.forceKillSwitch(true);
-    }
     logger.info({ msg: 'Bot paused via Telegram' });
     ctx.reply('⏸️ Bot paused. Use /resume to continue.');
   });
 
   bot.command('resume', (ctx) => {
     isPaused = false;
-    if (safetyModuleRef) {
-      safetyModuleRef.forceKillSwitch(false);
-    }
     logger.info({ msg: 'Bot resumed via Telegram' });
     ctx.reply('▶️ Bot resumed.');
   });
