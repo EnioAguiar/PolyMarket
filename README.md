@@ -301,7 +301,8 @@ Levantados na última sessão de trabalho, ainda presentes no código:
 - **`config.yaml` commitado com `dryRun: false`** — clone novo + `PRIVATE_KEY` setado = trade real imediato
 - **Safety module é pulado inteiro em dry-run** (`checkBet()` retorna sempre `passed: true`) — bugs de safety ficam escondidos até ir pra produção
 - Estado de safety (perda diária, drawdown, cycle) é só em memória — reinício do bot zera os contadores de proteção
-- **RPC fallback list em `src/api/http.ts` está 2/3 morta**: `polygon.llamarpc.com` (default) falhou DNS, `rpc.ankr.com/polygon` agora exige API key própria — confirmado por teste direto em 21/set/2026. Só `1rpc.io/matic` e `polygon-bor-rpc.publicnode.com` responderam (`polygon.drpc.org` também). Isso explica os commits antigos mexendo em RPC — o padrão já nasceu quebrado.
+- ~~RPC fallback list em `src/api/http.ts` está 2/3 morta~~ ✅ **corrigido no sub-projeto 2** (commit `1944b4bf`) — lista trocada por `fallback()` real sobre 3 URLs verificadas.
+- **Guard de geoblock não alerta nem aborta** — desliga trading real e loga erro, mas não manda Telegram nem encerra o processo; achado durante o sub-projeto 2 (21/set/2026), ver item 6 dos Próximos Passos
 
 O arquivo original (severidade média/baixa incluída) continua no histórico do git, não precisa reproduzir manualmente: `git show 93fc1628:.planning/codebase/CONCERNS.md`
 
