@@ -1,38 +1,43 @@
 # Infra Resilience — Proxy Wiring, RPC Fallback, Geoblock Guard — Design Spec
 
-**Date:** 2026-09-21 (rewritten same day after a design flaw was caught before implementation — see revision note below)
-**Status:** Draft — written without a synchronous approval round-trip, per explicit standing instruction from the project owner earlier this session ("vá para plan 2 spec e plan sem pergunta... não vou estar no pc para confirmar"). Self-reviewed against the evidence below; flag anything on return for revision.
+**Date:** 2026-09-21 (rewritten twice same day — two design flaws caught and fixed before implementation, both empirically validated with a real order. See revision notes below.)
+**Status:** Draft, but the core mechanism is proven live — written without a synchronous approval round-trip, per explicit standing instruction from the project owner earlier this session ("vá para plan 2 spec e plan sem pergunta... não vou estar no pc para confirmar").
 **Sub-project 2 of 3** (sub-project 1, Wallet & Trading Correctness, is complete — see `docs/superpowers/plans/2026-09-21-wallet-trading-correctness.md`)
 
-## Revision note
+## Revision notes
 
-The first draft of this spec proposed wiring `global-agent` into `src/index.ts`. Before any code was written, review caught that `global-agent`'s built-in proxy agent classes (`node_modules/global-agent/dist/classes/HttpProxyAgent.js`) do a bare `net.connect(proxy.port, proxy.hostname)` with **no SOCKS handshake at all** — they only implement plain HTTP CONNECT-style proxying. The project's actual proxy (`.env`'s `HTTP_PROXY`/`HTTPS_PROXY`) is `socks5h://user-...@dc.decodo.com:10001`. `global-agent` cannot speak this protocol regardless of namespace configuration — the whole first draft would have compiled, run, and silently failed to proxy anything. This revision replaces `global-agent` with `proxy-agent` (already a declared dependency, confirmed via its source to correctly delegate `socks:`/`socks4:`/`socks5:`/`socks5h:` schemes to `socks-proxy-agent`).
+1. The first draft proposed `global-agent`. Before any code was written, review caught that `global-agent`'s built-in proxy agent classes do a bare `net.connect(proxy.port, proxy.hostname)` with **no SOCKS handshake at all**. The project's proxy is `socks5h://...`. Replaced with `proxy-agent` (already a declared dependency, confirmed SOCKS5-capable via its source).
+2. **The second draft's `proxy-agent` usage was itself broken, caught by live testing, not by reading source.** Setting `process.env.HTTP_PROXY`/`HTTPS_PROXY` (even just to feed `ProxyAgent`'s own auto-detection) also makes **axios** — which `@polymarket/clob-client-v2` uses internally — auto-detect the same variables and apply its own built-in proxy handling, which is HTTP-CONNECT-only and cannot parse a `socks5h://` URL. This happens regardless of any custom `http.globalAgent`/`https.globalAgent` patch, because axios's own env-based proxy logic runs first and conflicts with it. Live symptom: `createOrDeriveApiKey()` failed instantly (~20ms, too fast to be a real network round-trip) with an unserializable empty error object whenever `HTTP_PROXY`/`HTTPS_PROXY` were set as literal environment variables — with or without a custom agent patched in. The fix (below) never sets those two variable names as real env vars; the proxy URL is read from a differently-named variable and passed explicitly.
 
 ## Goal
 
-Make the bot's actual trading-relevant outbound traffic (CLOB order submission, the geoblock check itself) go through the configured SOCKS5 proxy in production, make RPC calls survive a dead default endpoint, and make the bot fail loud — not silently attempt and lose — when Polymarket's own geoblock would reject trading, exactly as this session's live test just proved happens today.
+Make the bot's actual trading-relevant outbound traffic (CLOB order submission, the geoblock check itself) go through the configured SOCKS5 proxy in production, make RPC calls survive a dead default endpoint, and make the bot fail loud — not silently attempt and lose — when Polymarket's own geoblock would reject trading.
 
-## Background (evidence from this session, not restated here in full — see README.md)
+## Background (evidence from this session)
 
-- **The bot's real entry point never activates any proxy.** `import 'global-agent/bootstrap'` exists only in `src/main.ts` (the legacy polling entry point). `src/index.ts` — what `npm start` actually runs as `dist/index.js` on Railway — never imports it.
-- **Even if wired into the right file, `global-agent` cannot proxy this project's SOCKS5 URL at all** (see Revision note above) — this is a harder blocker than the missing import, and no amount of namespace/env-var fixing solves it.
-- **Live proof this actually breaks trading, not just theoretical:** this session ran the bot's own `placeMarketOrder()` (not the UI) against a real, liquid market, with no proxy active. It came back rejected: `{"error":"Trading restricted in your region, please refer to available regions - https://docs.polymarket.com/developers/CLOB/geoblock","status":403}`. `client.getBalanceAllowance()` — a read — succeeded from the same unproxied environment; only order *submission* was rejected. This matches the documented policy exactly: restricted jurisdictions can read/close but not open new orders.
-- **`@polymarket/clob-client-v2` uses axios internally with no custom agent configured** (confirmed: `grep -n "httpAgent\|httpsAgent\|globalAgent" node_modules/@polymarket/clob-client-v2/dist/index.js` returns nothing) — so it falls through to Node's default `http.globalAgent`/`https.globalAgent`, which **can** be patched process-wide. This is the mechanism this spec uses.
-- **Viem's `http()` transport (used for Polygon RPC calls) uses `fetch` by default** (confirmed in `node_modules/viem/_esm/utils/rpc/http.js`), and neither Node's legacy `http.globalAgent` patching nor `global-agent` nor a plain `proxy-agent`-style patch affects `fetch`/undici at all — `fetch` has its own dispatcher system, entirely separate from the `http`/`https` module. This spec deliberately does **not** attempt to proxy viem's RPC calls (see Non-Goals) — Polygon RPC nodes were never observed to geoblock anything this session; only Polymarket's own domains (`polymarket.com`, `clob.polymarket.com`) did.
-- **The RPC fallback list is dead code beyond index 0.** `src/api/http.ts`'s `POLYGON_RPC_URLS` array has 3 entries, but `createSharedPublicClient()` only ever reads index 0 or the `POLYGON_RPC_URL` env override — no actual fallback logic exists. Confirmed live: the default endpoint (`polygon.llamarpc.com`) fails outright in at least one deployment-like environment, and `getPUSDBalance()` silently returned `0` until `POLYGON_RPC_URL` was manually overridden to `https://1rpc.io/matic`, which responded correctly. `https://polygon-bor-rpc.publicnode.com` and `https://polygon.drpc.org` were also confirmed responsive this session; `https://rpc.ankr.com/polygon` now demands an API key.
-- **`proxy-agent` (already a declared dependency, was missing from `node_modules` until reinstalled during sub-project 1's Task 2) correctly handles SOCKS5** — confirmed via its own source (`node_modules/proxy-agent/dist/index.js`): `socks`/`socks4`/`socks4a`/`socks5`/`socks5h` schemes all delegate to `socks-proxy-agent`'s `SocksProxyAgent` (also a declared dependency).
+- **The bot's real entry point never activates any proxy today.** `import 'global-agent/bootstrap'` exists only in `src/main.ts` (the legacy polling entry point). `src/index.ts` — what `npm start` actually runs as `dist/index.js` on Railway — never imports it.
+- **`global-agent` cannot proxy this project's SOCKS5 URL at all** (Revision note 1) — a harder blocker than the missing import.
+- **Unproxied, order submission is rejected; a read is not.** This session ran the bot's own `placeMarketOrder()` (not the UI) against a real, liquid market with no proxy active: `{"error":"Trading restricted in your region...","status":403}`. `client.getBalanceAllowance()` — a read — succeeded from the same unproxied environment. Matches documented policy: restricted jurisdictions read/close but don't open new orders. Separately, `polymarket.com/api/geoblock` reported `blocked:false, country:CH` from the same raw egress — i.e. **the public geoblock-check endpoint and the CLOB's own order-submission enforcement disagreed** for this specific IP. The guard in this spec is built to share the CLOB's actual enforcement path (Design §2), not to trust the general-purpose check blindly, precisely because of this discrepancy.
+- **Fixed and empirically proven end-to-end this session, after two failed attempts:** with `proxy-agent`'s `ProxyAgent` constructed via `getProxyForUrl` (reading the SOCKS5 URL from a variable axios doesn't also auto-detect) and patched onto `http.globalAgent`/`https.globalAgent`, the bot's own `createClobClient()` → `placeMarketOrder()` path, run through the Decodo India proxy, returned a **real accepted order**: `{"success":true,"orderID":"0xcdab1c1d...","status":"delayed"}`. This is the first time this session that `POLY_1271` order *signing* was proven, not just balance/allowance reads — a geoblock 403 fires before signature verification, so nothing before this proved signing worked.
+- **`@polymarket/clob-client-v2` uses axios internally with no custom agent configured** (confirmed: `grep` for `httpAgent|httpsAgent|globalAgent` in its bundle returns nothing) — it falls through to Node's `http.globalAgent`/`https.globalAgent`, patchable process-wide, **and** to axios's own environment-variable-based proxy auto-detection, which is the trap in Revision note 2.
+- **Viem's `http()` transport (Polygon RPC calls) uses `fetch` by default**, which has its own dispatcher system entirely separate from `http`/`https` — no patch here affects it (see Non-Goals).
+- **The RPC fallback list is dead code beyond index 0.** `src/api/http.ts`'s `POLYGON_RPC_URLS` has 3 entries; `createSharedPublicClient()` only ever reads index 0 or the env override. Confirmed live: `polygon.llamarpc.com` fails outright in this session's environment; `getPUSDBalance()` silently returned `0` until manually pointed at `https://1rpc.io/matic`. `https://polygon-bor-rpc.publicnode.com` and `https://polygon.drpc.org` also confirmed responsive; `https://rpc.ankr.com/polygon` now requires an API key.
+- **`proxy-agent` correctly handles SOCKS5** — confirmed via its source: `socks`/`socks4`/`socks4a`/`socks5`/`socks5h` schemes all delegate to `socks-proxy-agent`.
 
 ## Non-Goals
 
-- Proxying viem's Polygon RPC calls or any other `fetch`-based traffic through the SOCKS5 proxy. This would require a custom undici dispatcher with a hand-rolled SOCKS5 `connect` implementation — real engineering effort for zero observed benefit, since no evidence this session showed Polygon RPC nodes geoblocking anything. If this changes, it's a new spec, not a silent scope add here.
+- Proxying viem's Polygon RPC calls or any other `fetch`-based traffic. Real engineering effort (a custom undici dispatcher with a hand-rolled SOCKS5 `connect`) for zero observed benefit — Polygon RPC nodes were never seen geoblocking anything.
 - Rotating/managing multiple proxy countries automatically, or retrying a geoblocked request through a different exit. This spec makes the bot aware and honest about being blocked; it does not build a bypass-retry system.
-- Deciding which Decodo proxy country to use long-term — India and Romania were empirically confirmed clean against both `polymarket.com/api/geoblock` and `clob.polymarket.com` this session; that's an operational choice already made, not something this code should hardcode.
+- Deciding which Decodo proxy country to use long-term — India and Romania were empirically confirmed clean this session; that's an operational choice already made.
 - Safety module bug fixes — sub-project 3.
-- The `result.success`/`errorMsg` validation bug in `placeMarketOrder`/`placeLimitOrder` — already fixed and committed this session (`0e6f70fc`) while validating sub-project 1, not part of this spec.
+- The `result.success`/`errorMsg` validation bug in `placeMarketOrder`/`placeLimitOrder` — already fixed and committed this session (`0e6f70fc`).
+- Reconciling *why* `polymarket.com/api/geoblock` and `clob.polymarket.com`'s order-submission enforcement disagreed for the unproxied IP. Noted as a real discrepancy (Background); this spec routes around it rather than explaining it.
 
 ## Design
 
-### 1. Patch `http.globalAgent`/`https.globalAgent` with a SOCKS5-aware proxy agent
+### 1. A new env var for the proxy URL, read explicitly — never set as `HTTP_PROXY`/`HTTPS_PROXY`
+
+`.env` / `.env.example`: rename the proxy configuration from `HTTP_PROXY`/`HTTPS_PROXY` to a single `PROXY_URL` variable (same `socks5h://...` value). This is the load-bearing fix from Revision note 2 — as long as literal `HTTP_PROXY`/`HTTPS_PROXY` env vars exist in the process, axios auto-detects and breaks on them regardless of any custom agent. Any other tooling that expects the standard `HTTP_PROXY` name (there is none identified in this codebase — `grep -rn "HTTP_PROXY\|HTTPS_PROXY" src/` only ever appears in the code this spec is replacing) is unaffected by the rename.
 
 `src/index.ts`: add, as the very first lines of the file (before any other import that could eagerly issue an HTTP request):
 
@@ -41,22 +46,23 @@ import { ProxyAgent } from 'proxy-agent';
 import http from 'node:http';
 import https from 'node:https';
 
-if (process.env.HTTP_PROXY || process.env.HTTPS_PROXY) {
-  const proxyAgent = new ProxyAgent();
+const proxyUrl = process.env.PROXY_URL;
+if (proxyUrl) {
+  const proxyAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl });
   http.globalAgent = proxyAgent;
   https.globalAgent = proxyAgent;
 }
 ```
 
-`ProxyAgent`'s constructor with no arguments auto-detects `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY` from the environment and picks the right underlying agent by URL scheme — no namespace configuration needed, and `.env`'s existing `socks5h://` value works as-is. Guard on the env vars being set at all so a deployment with no proxy configured doesn't pointlessly construct an agent that immediately no-ops.
+Passing `getProxyForUrl` explicitly — rather than constructing `new ProxyAgent()` bare and relying on its own env auto-detection — means `ProxyAgent` never needs `HTTP_PROXY`/`HTTPS_PROXY` to be set either, closing the loop: nothing in the process ever populates the two variable names axios watches.
 
-**Remove `global-agent` entirely** (clean cutover, matches the project's existing convention from sub-project 1 of not leaving obsolete tooling half-wired):
+**Remove `global-agent` entirely:**
 - `package.json`: drop the `global-agent` dependency.
-- `src/main.ts`: replace `import 'global-agent/bootstrap';` with the same `ProxyAgent`-based block used in `index.ts` above (main.ts is legacy but still imports; leaving a `require`/`import` of a removed package would break its compile).
+- `src/main.ts`: replace `import 'global-agent/bootstrap';` with the same block used in `index.ts` above.
 
 ### 2. Geoblock startup guard, using a proxy-aware request (not `fetch`)
 
-New module `src/api/geoblock.ts` (one clear responsibility — checking and reporting geoblock status — keeps `index.ts` from growing further):
+New module `src/api/geoblock.ts`:
 
 ```typescript
 import https from 'node:https';
@@ -93,9 +99,9 @@ export function checkGeoblock(): Promise<GeoblockStatus> {
 }
 ```
 
-This deliberately uses `https.get` (built on `https.request`), **not** `fetch` — `https.request`-based calls honor `https.globalAgent` once patched in Section 1, so this check reflects the exact same egress path that `@polymarket/clob-client-v2`'s axios-based order calls will use. A `fetch`-based check would silently measure the *unproxied* IP while real orders went through the proxy (or vice versa) — precisely the mismatch this session observed (`curl` reporting `CH`/unblocked while the bot's own unproxied order call got a 403), which this design closes by using the same request mechanism for both.
+`https.get` (built on `https.request`), not `fetch` — it honors `https.globalAgent` once patched in §1, so this check shares the exact egress path `@polymarket/clob-client-v2`'s axios-based order calls use. Given the Background's noted discrepancy between this endpoint and the CLOB's own order-submission enforcement, treat a `blocked: false` result from this check as informative, not an ironclad guarantee — it is still the best pre-flight signal available without submitting a real order, and it uses the correct (proxied) egress now, which the original unproxied comparison did not.
 
-In `src/index.ts`'s `main()`, after `initLogger(config)` and before the existing `if (!config.dryRun) { ... }` block that creates the live trading client:
+In `src/index.ts`'s `main()`, after `initLogger(config)` and before the existing `if (!config.dryRun) { ... }` block:
 
 ```typescript
 let geoblocked = false;
@@ -111,11 +117,11 @@ try {
 }
 ```
 
-(`geoblocked` is declared as a local `let` inside `main()`, not a module-level variable — nothing outside `main()` needs to read it.) Widen the existing live-trading condition from `if (!config.dryRun)` to `if (!config.dryRun && !geoblocked)`. When geoblocked, the bot falls into the same branch that already exists for `dryRun` — bankroll stays 0, no `createClobClient()` call is made, and the bot keeps running (WebSocket monitoring, health endpoint, Telegram if configured) instead of attempting and losing trades it already knows will be rejected. No new Telegram-specific alerting code is added — `logger.error` is sufficient for now; Telegram's broader alerting gaps are tracked separately under sub-project 3 (CONCERNS.md already documents several).
+Widen `if (!config.dryRun)` to `if (!config.dryRun && !geoblocked)`. Geoblocked runs fall into the same branch that already exists for `dryRun` (bankroll 0, no `createClobClient()` call), and the bot keeps running (WebSocket monitoring, health endpoint, Telegram if configured).
 
 ### 3. Real RPC fallback
 
-`src/api/http.ts`: replace the single-URL selection with viem's built-in `fallback()` transport, which actually retries the next URL when one fails (the current code has never done this — the array is decorative):
+`src/api/http.ts`: replace the single-URL selection with viem's built-in `fallback()` transport:
 
 ```typescript
 import { http, createPublicClient, fallback, PublicClient } from 'viem';
@@ -147,20 +153,20 @@ export function resetSharedPublicClient(): void {
 }
 ```
 
-`polygon.llamarpc.com` (dead in this session's test environment) and `rpc.ankr.com/polygon` (now requires an API key this project doesn't have) are dropped entirely rather than kept at low priority — keeping a URL known to need a key it lacks just wastes a retry cycle on every failover. If `POLYGON_RPC_URL` is set, it's tried first, then falls through to the 3 verified defaults — the override isn't lost, it just stops being a single point of failure.
+`polygon.llamarpc.com` and `rpc.ankr.com/polygon` are dropped entirely (dead / now requires a key this project doesn't have). If `POLYGON_RPC_URL` is set, it's tried first, then falls through to the 3 verified defaults.
 
 ## Testing
 
-- `checkGeoblock()` is a thin, proxy-aware wrapper around a public, unauthenticated, well-known endpoint — no unit test with a mock adds real coverage (this project's existing tests never mock network calls). Manual verification: call it directly with and without `HTTP_PROXY` set, confirm the reported `ip`/`country` actually changes when the proxy is active — that's the concrete proof the patch in Section 1 is doing something, not just present in the diff.
+- `checkGeoblock()` and the proxy patch: **already manually verified live this session**, end-to-end, with a real order (see Background) — not merely planned. Re-verify after the actual code lands (as opposed to the throwaway scripts used to prove the design) as part of Success Criteria below.
 - `createSharedPublicClient()`'s fallback behavior: manual verification only, matching this project's existing convention (no test coverage exists for `src/api/http.ts` today).
-- Manual smoke test (full list in Success Criteria) covers all three changes together, since they're small and interdependent — the geoblock guard's real-world meaning depends on the proxy patch actually being in effect first.
 
 ## Success Criteria
 
-- [ ] `src/index.ts` and `src/main.ts` both patch `http.globalAgent`/`https.globalAgent` with `proxy-agent`'s `ProxyAgent` (guarded on `HTTP_PROXY`/`HTTPS_PROXY` being set) as their first executable statements. `global-agent` is removed from `package.json` and no file imports it.
-- [ ] With `.env`'s existing `socks5h://` proxy URL active, `checkGeoblock()`'s reported `ip`/`country` changes compared to running with the proxy env vars unset — concrete proof the SOCKS5 proxy is actually in effect for `https.request`-based traffic, not just configured.
-- [ ] `checkGeoblock()` exists in `src/api/geoblock.ts`, uses `https.get`/`https.request` (not `fetch`), is called during `main()` startup before any live-trading client is created, and gates the live-trading branch (`!config.dryRun` widened to `!config.dryRun && !geoblocked`).
-- [ ] When geoblocked, the bot logs a clear error, does not call `createClobClient()`, and continues running (health endpoint, WebSocket monitoring) rather than crashing.
-- [ ] `createSharedPublicClient()` uses `fallback()` over the 3 verified-working RPC URLs, with `polygon.llamarpc.com` and `rpc.ankr.com/polygon` removed from the list.
+- [ ] `.env` / `.env.example` use `PROXY_URL`, not `HTTP_PROXY`/`HTTPS_PROXY`. `grep -rn "HTTP_PROXY\|HTTPS_PROXY" .env src/` returns nothing.
+- [ ] `src/index.ts` and `src/main.ts` both patch `http.globalAgent`/`https.globalAgent` with `proxy-agent`'s `ProxyAgent` constructed via explicit `getProxyForUrl`, reading `PROXY_URL`, as their first executable statements. `global-agent` is removed from `package.json` and no file imports it.
+- [ ] With `PROXY_URL` set to the real Decodo proxy, `checkGeoblock()`'s reported `ip`/`country` matches the proxy's known exit (India or Romania) — proof the patch is live, not just present in the diff.
+- [ ] `checkGeoblock()` exists in `src/api/geoblock.ts`, uses `https.get` (not `fetch`), runs in `main()` before any live-trading client is created, and gates the live-trading branch.
+- [ ] When geoblocked, the bot logs a clear error, does not call `createClobClient()`, and keeps running.
+- [ ] `createSharedPublicClient()` uses `fallback()` over the 3 verified-working RPC URLs.
 - [ ] `npm run build` passes.
-- [ ] Manual smoke test: with the Decodo proxy correctly configured (India or Romania, both confirmed clean this session) and the Section 1 patch active, `checkGeoblock()` reports `blocked: false` from that exit IP. The true-positive path (an actually-blocked exit) is not separately smoke-tested — deliberately routing through a known-restricted-country proxy just to watch the bot correctly refuse to trade is operational overhead this project doesn't need; the live evidence already gathered this session (`placeMarketOrder()` rejected with a 403 from the unproxied raw environment) is the true-positive proof, and it predates this fix. The code path is covered by review, not a second live drill.
+- [ ] Manual smoke test, reproducing this session's already-successful live result with the actual (not throwaway) code: `createClobClient()` + `placeMarketOrder()` through the wired proxy returns a real `orderID`, no geoblock 403, no auth failure.
