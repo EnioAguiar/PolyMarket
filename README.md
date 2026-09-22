@@ -294,9 +294,9 @@ O bot roda continuamente no Railway em modo event-driven:
 
 Levantados na última sessão de trabalho, ainda presentes no código:
 
-- **`/pause` do Telegram não funciona de verdade** — chama `forceKillSwitch()`, método que não existe em `SafetyModule` (`src/api/telegram.ts:122`)
-- **Erros de avaliação de mercado são engolidos silenciosamente** — `evaluateMarketForWebSocket()` é chamado sem `await`; o mutex do market também vaza nesse caminho de erro (`src/index.ts:120`)
-- **`recordTrade()` nunca é chamado** → limite de perda diária e kill switch de drawdown são código morto, nunca disparam de verdade
+- **`/pause` do Telegram funciona pela metade** — seta `isPaused = true` (que É checado antes de avaliar `new_market`, então bloqueia apostas novas), mas a linha seguinte chama `safetyModuleRef.forceKillSwitch(true)`, método que não existe em `SafetyModule` (`src/api/telegram.ts:122`) — isso quebra a execução do handler, o usuário nunca recebe a confirmação "⏸️ Bot paused", e nenhum estado do Safety Module é realmente afetado (o kill switch de verdade é `isKillSwitchActive()`/`resetKillSwitch()`, nunca tocado por esse comando)
+- **Mutex de mercado vaza SEMPRE, não só no erro** — `evaluateMarketForWebSocket()` é chamado sem `await` (`src/index.ts:130`); o único lugar que libera o lock é `CycleManager.resolveBet()`, que exige achar a aposta em `state.bets` — e `state.bets` fica vazio pra sempre porque **`cycleManager.addBet()` nunca é chamado em lugar nenhum do código** (confirmado por grep, zero callers). Resultado: todo mercado avaliado uma vez fica travado pra sempre — nunca reavaliado — e **o limite de 3 apostas por ciclo + pausa de 24h também nunca funcionou** (`canAcceptBet()` checa `state.bets.length >= 3`, que nunca é verdade)
+- **`recordTrade()` também nunca é chamado** → limite de perda diária e kill switch de drawdown do Safety Module são código morto, nunca disparam de verdade. Combinado com o item acima: **nenhuma das três camadas de proteção (ciclo, perda diária, drawdown) jamais recebeu o resultado de uma aposta de volta** — o bot apostaria sem limite nenhum em produção
 - **Nenhuma checagem de saldo antes de submeter ordem**, nenhuma confirmação on-chain do `txHash` depois
 - **`config.yaml` commitado com `dryRun: false`** — clone novo + `PRIVATE_KEY` setado = trade real imediato
 - **Safety module é pulado inteiro em dry-run** (`checkBet()` retorna sempre `passed: true`) — bugs de safety ficam escondidos até ir pra produção
