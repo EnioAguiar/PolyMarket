@@ -150,6 +150,8 @@ export interface SentimentSignal {
   confidence: number;
   articles: { title: string; link: string; probability: number }[];
 }
+```
+
 
 **Critical: date-bound filtering is required, not optional — without it, Run B's backtest (§8) is methodologically worthless.** Searching Google News *today* for a market's question after it has already resolved returns articles reporting the outcome itself, not pre-resolution sentiment — Jev would then be "predicting" by reading a headline that states the answer, and the backtest's hit-rate would measure nothing real (near-100%, and meaningless). `searchGoogleNewsRss` and `evaluateSentiment` MUST accept an optional cutoff date and enforce it two ways: append a `before:YYYY-MM-DD` operator to the query (Google's own date-bound search operator) AND defensively drop any returned item whose own `pubDate` is on or after the cutoff (the `before:` operator's server-side enforcement is not something this project controls or can fully trust).
 
