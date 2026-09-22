@@ -30,6 +30,36 @@ const DATED_RSS = `<?xml version="1.0" encoding="UTF-8"?>
 </channel>
 </rss>`;
 
+// Item with an HTML-entity-escaped, CDATA-wrapped title and source, to
+// exercise decodeXmlEntities on the fields the parser actually returns.
+const ENTITY_CDATA_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>"entities" - Google News</title>
+<item>
+<title><![CDATA[Tom &amp; Jerry's "Crypto" Show &lt;Recap&gt;]]></title>
+<link>https://example.com/entities</link>
+<pubDate>Mon, 01 Sep 2026 10:00:00 GMT</pubDate>
+<source url="https://example.com">Example &amp; Co</source>
+</item>
+</channel>
+</rss>`;
+
+// Item with a pubDate that cannot be parsed into a valid Date, to exercise
+// the fail-closed behavior of the before-cutoff filter.
+const UNPARSEABLE_DATE_RSS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>"bad date" - Google News</title>
+<item>
+<title>Item with an unparseable pubDate - Example News</title>
+<link>https://example.com/bad-date</link>
+<pubDate>not-a-real-date</pubDate>
+<source url="https://example.com">Example News</source>
+</item>
+</channel>
+</rss>`;
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -91,5 +121,31 @@ describe('searchGoogleNewsRss', () => {
 
     expect(articles).toHaveLength(1);
     expect(articles[0].link).toBe('https://example.com/before');
+  });
+
+  it('decodes CDATA-wrapped titles and HTML entities', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: async () => ENTITY_CDATA_RSS,
+    } as Response);
+
+    const articles = await searchGoogleNewsRss('entities');
+
+    expect(articles).toHaveLength(1);
+    expect(articles[0].title).toBe(`Tom & Jerry's "Crypto" Show <Recap>`);
+    expect(articles[0].source).toBe('Example & Co');
+  });
+
+  it('drops items with an unparseable pubDate when before is set (fail closed)', async () => {
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      text: async () => UNPARSEABLE_DATE_RSS,
+    } as Response);
+
+    const articles = await searchGoogleNewsRss('bad date', {
+      before: new Date('2026-09-10T00:00:00Z'),
+    });
+
+    expect(articles).toHaveLength(0);
   });
 });

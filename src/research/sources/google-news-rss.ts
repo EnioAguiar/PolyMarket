@@ -26,10 +26,13 @@ export async function searchGoogleNewsRss(query: string, opts: SearchOptions = {
   if (opts.before) {
     // Defensive second layer: Google's before: operator is a query hint,
     // not something this project controls or can fully trust server-side.
+    // Fail CLOSED: an item whose pubDate can't be verified as pre-cutoff
+    // must be dropped, not kept — this guard exists to prevent post-
+    // resolution news from leaking into a pre-resolution backtest.
     const cutoff = opts.before;
     articles = articles.filter((a) => {
       const pubDate = new Date(a.pubDate);
-      return Number.isNaN(pubDate.getTime()) ? true : pubDate < cutoff;
+      return Number.isNaN(pubDate.getTime()) ? false : pubDate < cutoff;
     });
   }
   return articles.slice(0, maxResults);
