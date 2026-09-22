@@ -16,7 +16,7 @@ const SYMBOL_MAP: Record<string, string> = {
 
 const COMPARISON_WORDS = /\b(above|below|over|under|exceed|reach|hit|surpass)\b/i;
 const SYMBOL_PATTERN = /\b(bitcoin|btc|ethereum|eth)\b/i;
-const THRESHOLD_PATTERN = /\$\s*([\d,]+(?:\.\d+)?)/;
+const THRESHOLD_PATTERN = /\$\s*([\d,]+(?:\.\d+)?)|\b(\d{1,3}(?:,\d{3})+(?:\.\d+)?)\b/;
 
 export function extractCryptoThreshold(question: string): CryptoThreshold | null {
   const symbolMatch = question.match(SYMBOL_PATTERN);
@@ -26,7 +26,8 @@ export function extractCryptoThreshold(question: string): CryptoThreshold | null
   if (!symbolMatch || !comparisonMatch || !thresholdMatch) return null;
 
   const symbol = SYMBOL_MAP[symbolMatch[1].toLowerCase()];
-  const threshold = Number(thresholdMatch[1].replace(/,/g, ''));
+  const rawThreshold = thresholdMatch[1] ?? thresholdMatch[2];
+  const threshold = Number(rawThreshold.replace(/,/g, ''));
   if (!symbol || Number.isNaN(threshold)) return null;
 
   return { symbol, threshold };

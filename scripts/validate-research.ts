@@ -90,6 +90,21 @@ async function runBacktest(): Promise<void> {
   let skippedNoWinner = 0;
   let skippedNoResolveDate = 0;
 
+  // Market-type breakdown (controller amendment, 2026-09-22): the combined
+  // withSignal hit-rate above conflates two structurally different tasks --
+  // crypto hourly strike-price questions ("Bitcoin above $84,200 on
+  // September 22, 12PM ET?") are a near-instantaneous technical threshold
+  // that news sentiment has no real mechanism to predict, versus genuine
+  // event/news markets (elections, approvals, geopolitical events) where
+  // sentiment is at least plausible as a signal. Reuse the already-shipped
+  // extractCryptoThreshold() classifier (Task 1) to split the withSignal
+  // bucket by market type so the two very different findings don't get
+  // averaged into one misleading number.
+  let cryptoStrikeCorrect = 0;
+  let cryptoStrikeTotal = 0;
+  let otherCorrect = 0;
+  let otherTotal = 0;
+
   for (const market of markets) {
     if (market.outcomes.length !== 2 || market.outcomePrices.length !== 2) continue;
 
@@ -132,15 +147,23 @@ async function runBacktest(): Promise<void> {
       // whatever the real Yes/No split happens to be, independent of Jev's
       // actual judging quality. Bucket them separately (controller
       // amendment, 2026-09-22).
+      const isCryptoStrike = extractCryptoThreshold(market.question) !== null;
       if (hasSignal) {
         withSignalTotal++;
         if (correct) withSignalCorrect++;
+        if (isCryptoStrike) {
+          cryptoStrikeTotal++;
+          if (correct) cryptoStrikeCorrect++;
+        } else {
+          otherTotal++;
+          if (correct) otherCorrect++;
+        }
       } else {
         noSignalCount++;
       }
 
       console.log(
-        `[sentiment] "${market.question.slice(0, 60)}" predicted=${predictedYes ? 'YES' : 'NO'} real=${realIsYes ? 'YES' : 'NO'} ${correct ? '\u2713' : '\u2717'} articles=${sentiment.articlesFound}${hasSignal ? '' : ' (NO SIGNAL, default 0.5)'} resolveDate=${market.resolveDate}`
+        `[sentiment] "${market.question.slice(0, 60)}" predicted=${predictedYes ? 'YES' : 'NO'} real=${realIsYes ? 'YES' : 'NO'} ${correct ? '\u2713' : '\u2717'} articles=${sentiment.articlesFound}${hasSignal ? '' : ' (NO SIGNAL, default 0.5)'} type=${isCryptoStrike ? 'crypto-strike' : 'other'} resolveDate=${market.resolveDate}`
       );
       for (const article of sentiment.articles) {
         console.log(`    - p=${article.probability.toFixed(2)} "${article.title.slice(0, 70)}" ${article.link}`);
@@ -175,6 +198,15 @@ async function runBacktest(): Promise<void> {
   console.log(`Skipped (no resolveDate to bound the search): ${skippedNoResolveDate}`);
   console.log(
     `\nSentiment strategy (markets with real news signal only): ${withSignalCorrect}/${withSignalTotal} correct`
+  );
+  console.log(
+    `  - Crypto strike-price markets (e.g. "Bitcoin above $84,200 on September 22, 12PM ET?", classified via extractCryptoThreshold()): ${cryptoStrikeCorrect}/${cryptoStrikeTotal} correct${cryptoStrikeTotal > 0 ? ` (${((cryptoStrikeCorrect / cryptoStrikeTotal) * 100).toFixed(1)}%)` : ''}`
+  );
+  console.log(
+    `  - Other markets (genuine independent event/news questions): ${otherCorrect}/${otherTotal} correct${otherTotal > 0 ? ` (${((otherCorrect / otherTotal) * 100).toFixed(1)}%)` : ''}`
+  );
+  console.log(
+    `  - Combined (for continuity with prior reporting): ${withSignalCorrect}/${withSignalTotal} correct${withSignalTotal > 0 ? ` (${((withSignalCorrect / withSignalTotal) * 100).toFixed(1)}%)` : ''}`
   );
   console.log(
     `Sentiment strategy, zero-article "no signal" markets (excluded from the accuracy number above, defaulted to a bare 0.5/"YES" guess): ${noSignalCount}`

@@ -36,6 +36,20 @@ describe('extractCryptoThreshold', () => {
   it('returns null for a crypto question with no numeric threshold', () => {
     expect(extractCryptoThreshold('Will Bitcoin go up this week?')).toBeNull();
   });
+
+  it('extracts a bare comma-formatted threshold with no dollar sign (real Polymarket hourly-strike phrasing)', () => {
+    const result = extractCryptoThreshold('Ethereum above 2,670 on September 22, 3PM ET?');
+    expect(result).toEqual({ symbol: 'ethusdt', threshold: 2670 });
+  });
+
+  it('extracts a bare comma-formatted BTC threshold with no dollar sign', () => {
+    const result = extractCryptoThreshold('Bitcoin above 88,200 on September 22, 3PM ET?');
+    expect(result).toEqual({ symbol: 'btcusdt', threshold: 88200 });
+  });
+
+  it('does not mistake a bare 4-digit year for a threshold', () => {
+    expect(extractCryptoThreshold('Will Bitcoin hit a new high in 2027?')).toBeNull();
+  });
 });
 
 describe('classifyMarket', () => {
