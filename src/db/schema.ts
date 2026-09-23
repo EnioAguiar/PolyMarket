@@ -30,6 +30,37 @@ export const researchResults = sqliteTable('research_results', {
   processed: integer('processed', { mode: 'boolean' }).notNull().default(false),
 });
 
+// Whale-signal live monitor (2026-09-22): every large trade ($20k+) seen
+// live, classified as fresh/dormant or established wallet at the moment of
+// the bet, backfilled with the real outcome once its market resolves.
+// Both groups are stored (not just "interesting" ones) so the
+// fresh/dormant-vs-established control comparison keeps working as data
+// accumulates -- see src/research/whale-signal.ts for the classification
+// rules shared with the historical backtest (scripts/validate-whale-signal.ts).
+export const whaleBets = sqliteTable('whale_bets', {
+  id: text('id').primaryKey(), // `${wallet}:${conditionId}:${timestamp}`
+  wallet: text('wallet').notNull(),
+  conditionId: text('condition_id').notNull(),
+  tokenId: text('token_id').notNull(),
+  eventSlug: text('event_slug').notNull(),
+  title: text('title').notNull(),
+  outcomeIndex: integer('outcome_index').notNull(),
+  timestamp: integer('timestamp').notNull(), // epoch seconds of the bet
+  shares: real('shares').notNull(),
+  usdStaked: real('usd_staked').notNull(),
+  avgPrice: real('avg_price').notNull(),
+  tradesBefore: integer('trades_before').notNull(),
+  gapDays: real('gap_days'), // nullable
+  isFreshOrDormant: integer('is_fresh_or_dormant', { mode: 'boolean' }).notNull(),
+  resolved: integer('resolved', { mode: 'boolean' }).notNull().default(false),
+  resolvedAt: integer('resolved_at'),
+  won: integer('won', { mode: 'boolean' }),
+  pnl: real('pnl'),
+  createdAt: text('created_at').notNull(),
+});
+
+export type WhaleBet = typeof whaleBets.$inferSelect;
+
 export type SourceRating = typeof sourceRatings.$inferSelect;
 export type SourceFeed = typeof sourceFeeds.$inferSelect;
 export type ResearchResult = typeof researchResults.$inferSelect;
