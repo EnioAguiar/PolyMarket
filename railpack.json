@@ -4,18 +4,6 @@
   "packages": {
     "python": "3.13"
   },
-  "steps": {
-    "install": {
-      "commands": [
-        "COPY:. .",
-        "npm ci"
-      ]
-    },
-    "build": {
-      "inputs": [{ "step": "install" }],
-      "commands": ["npm run build"]
-    }
-  },
   "deploy": {
     "startCommand": "python3 -m ensurepip --upgrade && python3 -m pip install -r requirements.txt && npm start"
   }
