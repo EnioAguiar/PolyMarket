@@ -6,9 +6,13 @@
   },
   "steps": {
     "install": {
-      "commands": ["npm ci"]
+      "commands": [
+        "COPY:. .",
+        "npm ci"
+      ]
     },
     "build": {
+      "inputs": [{ "step": "install" }],
       "commands": ["npm run build"]
     }
   },
