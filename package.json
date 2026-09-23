@@ -37,7 +37,7 @@
     "vitest": "^1.0.0"
   },
   "engines": {
-    "node": ">=20.10.0"
+    "node": ">=20.10.0 <26.0.0"
   },
   "allowScripts": {
     "better-sqlite3@12.9.0": true

@@ -96,8 +96,18 @@ export async function fetchJson<T>(url: string): Promise<T> {
 }
 
 // Page backward through the global large-trades feed. filter_amount is in
-// CASH (usd-equivalent per the API's filter_type), not shares.
-export async function fetchLargeTrades(minAmountUsd: number, maxPages: number): Promise<RawTrade[]> {
+// CASH (usd-equivalent per the API's filter_type), not shares. `stopAtOrBefore`
+// (epoch seconds), when given, stops paginating once a page's oldest trade
+// is at or before it -- lets a caller catch up exactly to where it left
+// off after downtime instead of guessing a fixed page count (review
+// finding, 2026-09-22: a live monitor hardcoded to 1 page would silently
+// lose everything older than that page's oldest trade after any real
+// outage/redeploy longer than that page covers).
+export async function fetchLargeTrades(
+  minAmountUsd: number,
+  maxPages: number,
+  stopAtOrBefore?: number
+): Promise<RawTrade[]> {
   const trades: RawTrade[] = [];
   let cursor: string | null = null;
   const baseParams = `filter_type=CASH&filter_amount=${minAmountUsd}&limit=200&side=BUY`;
@@ -111,8 +121,17 @@ export async function fetchLargeTrades(minAmountUsd: number, maxPages: number): 
     const url: string = cursor
       ? `${DATA_API}/trades?${baseParams}&cursor=${encodeURIComponent(cursor)}`
       : `${DATA_API}/trades?${baseParams}`;
+    // Pace requests to stay under the documented public-endpoint rate limit
+    // (60/min) -- review finding, 2026-09-22: a catch-up walk of many pages
+    // in a tight loop with no delay hammered the API fast enough to
+    // exhaust fetchJson's own retries and fail the whole cycle, which is
+    // worse than the data-loss bug this pagination was added to fix (the
+    // cycle now advances lastSeenTimestamp not at all instead of partially).
+    if (page > 0) await new Promise((resolve) => setTimeout(resolve, 1100));
     const res = await fetchJson<{ data: RawTrade[]; pagination: { next_cursor: string | null; has_more: boolean } }>(url);
     trades.push(...res.data);
+    const oldestInPage = res.data.length > 0 ? Math.min(...res.data.map((t) => t.timestamp)) : Infinity;
+    if (stopAtOrBefore !== undefined && oldestInPage <= stopAtOrBefore) break;
     if (!res.pagination.has_more || !res.pagination.next_cursor) break;
     cursor = res.pagination.next_cursor;
   }

@@ -36,7 +36,7 @@ import {
   type RawTrade,
 } from '../research/whale-signal.js';
 
-const MIN_BET_USD = 20000;
+const MIN_BET_USD = Number(process.env.MIN_BET_USD) || 20000;
 const POLL_INTERVAL_MS = 20_000;
 const RESOLUTION_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const PORT = Number(process.env.PORT) || 8080;
@@ -79,18 +79,30 @@ async function primeLastSeenTimestamp(): Promise<void> {
   console.log(`[monitor] Resuming from timestamp ${lastSeenTimestamp} (${new Date(lastSeenTimestamp * 1000).toISOString()})`);
 }
 
+const MAX_CATCHUP_PAGES = 50; // bounds worst-case work after a very long outage
+
 async function ingestOnce(): Promise<void> {
-  const [batch] = await Promise.all([fetchLargeTrades(MIN_BET_USD, 1)]); // page 0 only: the freshest window
+  // Paginate back until reaching lastSeenTimestamp, not a fixed page count
+  // -- review finding, 2026-09-22: a hardcoded single page would silently
+  // lose any trade older than that page's oldest entry after a real
+  // outage/redeploy longer than that page's time span covers, which is
+  // exactly the failure mode this collector exists to avoid.
+  const batch = await fetchLargeTrades(MIN_BET_USD, MAX_CATCHUP_PAGES, lastSeenTimestamp);
   const fresh = batch.filter((t) => t.timestamp > lastSeenTimestamp);
   if (fresh.length === 0) return;
 
   let maxTs = lastSeenTimestamp;
-  for (const trade of fresh) {
-    maxTs = Math.max(maxTs, trade.timestamp);
+  // Oldest-first so a mid-batch failure still advances lastSeenTimestamp
+  // correctly for what did succeed, rather than skipping ahead past a
+  // trade that never got persisted.
+  for (const [i, trade] of [...fresh].sort((a, b) => a.timestamp - b.timestamp).entries()) {
+    if (i > 0) await new Promise((resolve) => setTimeout(resolve, 1100));
     try {
       await persistTrade(trade);
+      maxTs = Math.max(maxTs, trade.timestamp);
     } catch (error) {
       console.error(`[monitor] Failed to persist trade ${trade.proxy_wallet.slice(0, 10)}: ${error}`);
+      break;
     }
   }
   lastSeenTimestamp = maxTs;
@@ -174,6 +186,20 @@ function computeStats() {
   };
 }
 
+// Optional simple token gate for /stats and /download -- review nit,
+// 2026-09-22: these would otherwise be public on the Railway-assigned URL
+// with no auth. The underlying data is public on-chain fact either way,
+// but an unguarded endpoint invites a scanner/bot hammering the .db
+// download repeatedly and burning paid bandwidth for no reason. Opt-in:
+// unset MONITOR_TOKEN behaves exactly as before (open), matching how this
+// was first deployed and verified locally.
+const monitorToken = process.env.MONITOR_TOKEN;
+function isAuthorized(req: http.IncomingMessage): boolean {
+  if (!monitorToken) return true;
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  return url.searchParams.get('token') === monitorToken;
+}
+
 function startServer(): void {
   const server = http.createServer((req, res) => {
     if (req.url === '/health') {
@@ -181,12 +207,17 @@ function startServer(): void {
       res.end(JSON.stringify({ status: 'ok', lastSeenTimestamp }));
       return;
     }
-    if (req.url === '/stats') {
+    if (!isAuthorized(req)) {
+      res.writeHead(401);
+      res.end('Unauthorized. Pass ?token=<MONITOR_TOKEN>.');
+      return;
+    }
+    if (req.url?.startsWith('/stats')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(computeStats(), null, 2));
       return;
     }
-    if (req.url === '/download') {
+    if (req.url?.startsWith('/download')) {
       const dbFilePath = resolve(DB_PATH);
       if (!existsSync(dbFilePath)) {
         res.writeHead(404);
