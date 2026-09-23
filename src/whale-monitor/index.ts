@@ -23,9 +23,9 @@
 // explicitly decided otherwise.
 
 import http from 'node:http';
-import { createReadStream, existsSync } from 'node:fs';
+import { createReadStream, existsSync, unlinkSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { sql, eq, isNull, or } from 'drizzle-orm';
+import { sql, eq } from 'drizzle-orm';
 import { getDb, DB_PATH } from '../db/index.js';
 import { whaleBets } from '../db/schema.js';
 import {
@@ -224,11 +224,31 @@ function startServer(): void {
         res.end('Database file not found');
         return;
       }
+      // Stream a consistent snapshot, not the live file -- review finding,
+      // 2026-09-22: the ingest loop writes to this file every ~20s, so a
+      // byte-for-byte stream of the live file mid-write could be served
+      // corrupted/inconsistent to a downloader. VACUUM INTO produces a
+      // complete, consistent copy in one call; the target must not already
+      // exist, so clear any leftover snapshot from a prior request first.
+      const snapshotPath = `${dbFilePath}.snapshot`;
+      if (existsSync(snapshotPath)) unlinkSync(snapshotPath);
+      try {
+        db.run(sql.raw(`VACUUM INTO '${snapshotPath}'`));
+      } catch (error) {
+        console.error('[monitor] Snapshot for /download failed:', error);
+        res.writeHead(500);
+        res.end('Failed to prepare a consistent snapshot');
+        return;
+      }
       res.writeHead(200, {
         'Content-Type': 'application/octet-stream',
         'Content-Disposition': 'attachment; filename="whale-monitor.db"',
       });
-      createReadStream(dbFilePath).pipe(res);
+      const stream = createReadStream(snapshotPath);
+      stream.pipe(res);
+      stream.on('close', () => {
+        if (existsSync(snapshotPath)) unlinkSync(snapshotPath);
+      });
       return;
     }
     res.writeHead(404);
