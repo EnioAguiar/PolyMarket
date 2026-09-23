@@ -235,7 +235,7 @@ async function main(): Promise<void> {
   console.log(`Deduped into ${bets.length} logical bets.`);
 
   const walletCache = new Map<string, WalletProfile>();
-  const candidates: Array<LogicalBet & WalletProfile> = [];
+  const classified: Array<LogicalBet & WalletProfile> = [];
   let classifyErrors = 0;
   for (const bet of bets) {
     const cacheKey = `${bet.wallet}:${bet.timestamp}`;
@@ -254,72 +254,85 @@ async function main(): Promise<void> {
         continue;
       }
     }
-    if (profile.isFreshOrDormant) candidates.push({ ...bet, ...profile });
+    classified.push({ ...bet, ...profile });
   }
-  console.log(`${candidates.length} bets are from a fresh (<=3 prior trades) or dormant (>=14d gap) wallet. (${classifyErrors} wallet lookups errored and were skipped)`);
+  const candidates = classified.filter((c) => c.isFreshOrDormant);
+  // Control arm (review finding, 2026-09-22): the fresh/dormant filter was
+  // never compared against a baseline of "copy any large bet regardless of
+  // wallet history" -- without that, a positive result here could just mean
+  // "large bets are informative in general", not that freshness/dormancy
+  // specifically adds anything. Score the complement group too, on the same
+  // data already fetched (classification happened for every bet either
+  // way; this is free).
+  const controlGroup = classified.filter((c) => !c.isFreshOrDormant);
+  console.log(`${candidates.length} bets are from a fresh (<=3 prior trades) or dormant (>=14d gap) wallet; ${controlGroup.length} are from an established wallet (control arm). (${classifyErrors} wallet lookups errored and were skipped)`);
 
-  const uniqueConditions = [...new Set(candidates.map((c) => c.conditionId))];
+  const uniqueConditions = [...new Set(classified.map((c) => c.conditionId))];
   const outcomes = await fetchOutcomesByCondition(uniqueConditions);
 
-  let totalStaked = 0;
-  let totalPnl = 0;
-  let scored = 0;
-  let skippedUnresolved = 0;
-  const sports = { staked: 0, pnl: 0, n: 0 };
-  const other = { staked: 0, pnl: 0, n: 0 };
-  // Track per-real-world-event aggregates (review finding, 2026-09-22: a
-  // widened run found 26 of 79 scored bets -- a third of the sample -- were
-  // all the same underlying event (one Fed rate decision, split across
-  // "increase 25bps"/"increase 50bps"/"no change"/"decrease 25bps" markets),
-  // which is one real-world coin flip sampled 26 times, not 26 independent
-  // trials. eventSlug (Gamma's real event grouping) detects this
-  // generically instead of requiring manual post-hoc analysis every time.
-  const byEvent = new Map<string, { staked: number; pnl: number; n: number; title: string }>();
+  function scoreGroup(items: Array<LogicalBet & WalletProfile>, label: string) {
+    let totalStaked = 0;
+    let totalPnl = 0;
+    let scored = 0;
+    let skippedUnresolved = 0;
+    const sports = { staked: 0, pnl: 0, n: 0 };
+    const other = { staked: 0, pnl: 0, n: 0 };
+    const byEvent = new Map<string, { staked: number; pnl: number; n: number; title: string }>();
 
-  for (const c of candidates) {
-    const outcome = outcomes.get(c.conditionId);
-    if (!outcome || outcome.outcomePrices.length !== 2) {
-      skippedUnresolved++;
-      continue;
+    for (const c of items) {
+      const outcome = outcomes.get(c.conditionId);
+      if (!outcome || outcome.outcomePrices.length !== 2) {
+        skippedUnresolved++;
+        continue;
+      }
+      const winnerIndex = outcome.outcomePrices.findIndex((p) => p === 1);
+      if (winnerIndex === -1) {
+        skippedUnresolved++;
+        continue;
+      }
+      const won = winnerIndex === c.outcomeIndex;
+      const payout = won ? 1 : 0;
+      const edgePerShare = payout - c.avgPrice;
+      const pnl = edgePerShare * c.shares;
+      totalStaked += c.usdStaked;
+      totalPnl += pnl;
+      scored++;
+      const bucket = TEAM_MATCHUP_PATTERN.test(c.title) ? sports : other;
+      bucket.staked += c.usdStaked;
+      bucket.pnl += pnl;
+      bucket.n++;
+      const eventAgg = byEvent.get(c.eventSlug) ?? { staked: 0, pnl: 0, n: 0, title: c.title };
+      eventAgg.staked += c.usdStaked;
+      eventAgg.pnl += pnl;
+      eventAgg.n++;
+      byEvent.set(c.eventSlug, eventAgg);
+      console.log(
+        `[whale:${label}] "${c.title.slice(0, 55)}" wallet=${c.wallet.slice(0, 10)} staked=$${c.usdStaked.toFixed(0)} price=${c.avgPrice.toFixed(2)} ${won ? 'WON' : 'LOST'} pnl=$${pnl.toFixed(0)} tradesBefore=${c.tradesBefore} gapDays=${c.gapDays?.toFixed(1) ?? 'n/a'}`
+      );
     }
-    const winnerIndex = outcome.outcomePrices.findIndex((p) => p === 1);
-    if (winnerIndex === -1) {
-      skippedUnresolved++;
-      continue;
+
+    console.log(`\n[${label}] Scored ${scored} candidates (${skippedUnresolved} skipped: market not yet resolved to a clean 0/1 winner).`);
+    console.log(`[${label}] Distinct real-world events (by Gamma eventSlug): ${byEvent.size} -- this, not the bet count, is the real sample size for statistical confidence.`);
+    const clustered = [...byEvent.entries()].filter(([, v]) => v.n >= 3).sort((a, b) => b[1].n - a[1].n);
+    if (clustered.length > 0) {
+      console.log(`[${label}] Events with 3+ correlated bets (same real-world outcome, not independent trials):`);
+      for (const [slug, v] of clustered) {
+        console.log(`  - "${v.title.slice(0, 50)}" (${slug}): ${v.n} bets, staked $${v.staked.toFixed(0)}, P&L $${v.pnl.toFixed(0)}, ROI ${((v.pnl / v.staked) * 100).toFixed(1)}%`);
+      }
     }
-    const won = winnerIndex === c.outcomeIndex;
-    const payout = won ? 1 : 0;
-    const edgePerShare = payout - c.avgPrice;
-    const pnl = edgePerShare * c.shares;
-    totalStaked += c.usdStaked;
-    totalPnl += pnl;
-    scored++;
-    const bucket = TEAM_MATCHUP_PATTERN.test(c.title) ? sports : other;
-    bucket.staked += c.usdStaked;
-    bucket.pnl += pnl;
-    bucket.n++;
-    const eventAgg = byEvent.get(c.eventSlug) ?? { staked: 0, pnl: 0, n: 0, title: c.title };
-    eventAgg.staked += c.usdStaked;
-    eventAgg.pnl += pnl;
-    eventAgg.n++;
-    byEvent.set(c.eventSlug, eventAgg);
-    console.log(
-      `[whale] "${c.title.slice(0, 60)}" wallet=${c.wallet.slice(0, 10)} staked=$${c.usdStaked.toFixed(0)} price=${c.avgPrice.toFixed(2)} ${won ? 'WON' : 'LOST'} pnl=$${pnl.toFixed(0)} tradesBefore=${c.tradesBefore} gapDays=${c.gapDays?.toFixed(1) ?? 'n/a'}`
-    );
+    console.log(`[${label}] Overall: staked $${totalStaked.toFixed(0)}, P&L $${totalPnl.toFixed(0)}, ROI ${totalStaked > 0 ? ((totalPnl / totalStaked) * 100).toFixed(1) : 'n/a'}%`);
+    console.log(`  - Team matchups (sports/esports, "X vs Y" pattern), n=${sports.n}: staked $${sports.staked.toFixed(0)}, P&L $${sports.pnl.toFixed(0)}, ROI ${sports.staked > 0 ? ((sports.pnl / sports.staked) * 100).toFixed(1) : 'n/a'}%`);
+    console.log(`  - Other markets (politics/macro/events), n=${other.n}: staked $${other.staked.toFixed(0)}, P&L $${other.pnl.toFixed(0)}, ROI ${other.staked > 0 ? ((other.pnl / other.staked) * 100).toFixed(1) : 'n/a'}%`);
+    return { totalStaked, totalPnl, scored };
   }
 
-  console.log(`\nScored ${scored} candidates (${skippedUnresolved} skipped: market not yet resolved to a clean 0/1 winner).`);
-  console.log(`Distinct real-world events (by Gamma eventSlug): ${byEvent.size} -- this, not the bet count, is the real sample size for statistical confidence.`);
-  const clustered = [...byEvent.entries()].filter(([, v]) => v.n >= 3).sort((a, b) => b[1].n - a[1].n);
-  if (clustered.length > 0) {
-    console.log(`Events with 3+ correlated bets (same real-world outcome, not independent trials):`);
-    for (const [slug, v] of clustered) {
-      console.log(`  - "${v.title.slice(0, 50)}" (${slug}): ${v.n} bets, staked $${v.staked.toFixed(0)}, P&L $${v.pnl.toFixed(0)}, ROI ${((v.pnl / v.staked) * 100).toFixed(1)}%`);
-    }
-  }
-  console.log(`\nOverall: staked $${totalStaked.toFixed(0)}, P&L $${totalPnl.toFixed(0)}, ROI ${totalStaked > 0 ? ((totalPnl / totalStaked) * 100).toFixed(1) : 'n/a'}%`);
-  console.log(`  - Team matchups (sports/esports, "X vs Y" pattern), n=${sports.n}: staked $${sports.staked.toFixed(0)}, P&L $${sports.pnl.toFixed(0)}, ROI ${sports.staked > 0 ? ((sports.pnl / sports.staked) * 100).toFixed(1) : 'n/a'}%`);
-  console.log(`  - Other markets (politics/macro/events), n=${other.n}: staked $${other.staked.toFixed(0)}, P&L $${other.pnl.toFixed(0)}, ROI ${other.staked > 0 ? ((other.pnl / other.staked) * 100).toFixed(1) : 'n/a'}%`);
+  const freshResult = scoreGroup(candidates, 'fresh/dormant');
+  const controlResult = scoreGroup(controlGroup, 'control: established wallets');
+
+  console.log(`\n=== Control comparison ===`);
+  console.log(`Fresh/dormant ROI: ${freshResult.totalStaked > 0 ? ((freshResult.totalPnl / freshResult.totalStaked) * 100).toFixed(1) : 'n/a'}% (n=${freshResult.scored})`);
+  console.log(`Established-wallet ROI: ${controlResult.totalStaked > 0 ? ((controlResult.totalPnl / controlResult.totalStaked) * 100).toFixed(1) : 'n/a'}% (n=${controlResult.scored})`);
+  console.log(`If these are close, the fresh/dormant filter adds little beyond "large bets are informative in general".`);
 }
 
 main().catch((error) => {
