@@ -130,7 +130,7 @@ WebSocket Polymarket
   Inferência Bayesiana (estimativa de probabilidade)
         │
         ▼
-  AI Chain (MiniMax AI — raciocínio com chain-of-thought)
+  AI Chain (TypeSafe/Jev — raciocínio com chain-of-thought)
         │
         ▼
   Safety Module (verificações de risco)
@@ -142,7 +142,7 @@ WebSocket Polymarket
   Execução via CLOB API v2 (Polygon / USDC → pUSD)
 ```
 
-> **Atenção:** o Research (fontes) e o AI Chain (MiniMax) existem no código mas **não estão conectados** ao caminho de execução principal (`src/index.ts`). Hoje o bot decide só por preço/liquidez. Ver "Módulos parcialmente implementados" abaixo.
+> **Atenção:** o Research (fontes) e o AI Chain (TypeSafe/Jev) existem no código mas **não estão conectados** ao caminho de execução principal (`src/index.ts`). Hoje o bot decide só por preço/liquidez. Ver "Módulos parcialmente implementados" abaixo.
 
 ---
 
@@ -151,7 +151,7 @@ WebSocket Polymarket
 - **Modo event-driven** — reage a novos mercados em tempo real via WebSocket, sem polling
 - **Research multi-fonte** — agrega sinais de notícias, redes sociais e dados de mercado (implementado, não conectado — ver acima)
 - **Inferência Bayesiana** — calcula probabilidade posterior ponderando cada fonte por confiança e relevância
-- **AI Chain** — usa MiniMax AI com chain-of-thought para gerar e validar estimativas
+- **AI Chain** — usa TypeSafe/Jev com chain-of-thought para gerar e validar estimativas
 - **Gestão de ciclo** — limita a 3 apostas por ciclo com pausa de 24h após o fechamento
 - **Safety Module** — três camadas de controle de risco (posição, perda diária, drawdown) — **bugs de wiring corrigidos no sub-projeto 3, ver Problemas Conhecidos**
 - **Modo Dry Run** — loga todas as decisões sem executar trades reais
@@ -170,7 +170,7 @@ WebSocket Polymarket
 | Exchange API | Polymarket CLOB API **V2** (`https://clob.polymarket.com`, desde 28/abr/2026) |
 | SDK | `@polymarket/clob-client-v2` — **pinado em `1.0.3-canary.0`, defasado** (estável atual: `1.1.0`) |
 | WebSocket | `wss://ws-subscriptions-clob.polymarket.com/ws/market` (mercados em tempo real) |
-| IA | MiniMax AI (`MiniMax-M2.7`, API compatível com Anthropic) |
+| IA | TypeSafe/Jev (`src/ai/jev.ts`, substitui MiniMax — decisão tomada no sub-projeto 4, 22/set/2026; só usado pelo pipeline de research, não conectado ao caminho de decisão de trading) |
 | Banco de dados | SQLite (`better-sqlite3`) + Drizzle ORM |
 | Deploy | Railway (`railpack.json` / `railway.json`, volume persistente em `/data`) |
 | Logging | Pino |
@@ -183,25 +183,26 @@ WebSocket Polymarket
 ```
 src/
 ├── index.ts          # Entry point PRINCIPAL — servidor HTTP + WebSocket + ciclo event-driven
-├── main.ts           # Entry point LEGADO — loop de polling via Gamma REST API, não usado em produção
-├── ai/               # Chain de IA (MiniMax) — implementado, não conectado ao fluxo principal
-├── research/         # 8+ fontes de research (news, social, cripto, scraping) — implementado, não conectado
+├── whale-monitor/    # Serviço Railway SEPARADO (22/set/2026) — coleta ao vivo do sinal "carteira nova/dormente aposta alto", grava em src/db (whale_bets), NÃO conectado ao bot de trading — ver "Sub-projeto 5"
+├── ai/               # jev.ts (TypeSafe/Jev) — usado só pelo pipeline de research (scripts/validate-research.ts, whale-monitor); não conectado ao fluxo principal de trading
+├── research/         # 8+ fontes de research (news, social, cripto, scraping) + whale-signal.ts (sinal de "copy trading") — implementado, não conectado ao trading real
 ├── bankroll/         # Kelly criterion sizing — implementado, não conectado (safety/position-limits.ts é o usado)
 ├── betting/          # CycleManager (3 apostas/ciclo, espera 24h), MarketMutex (dedup por market ID)
 ├── execution/         # Slippage (10% máx), arbitragem, re-export das funções de ordem do CLOB
 ├── safety/           # 3 camadas de risco: posição (BANK-01), perda diária (BANK-02), drawdown (BANK-03)
 ├── api/              # Clientes: clob.ts (CLOB V2), polymarket.ts (Gamma REST), http.ts (RPC Polygon), telegram.ts
 ├── websocket/        # Client WS, EventRouter, SubscriptionManager
-├── db/               # Schema SQLite (source_ratings, source_feeds, research_results) via Drizzle
+├── db/               # Schema SQLite via Drizzle: source_ratings/source_feeds/research_results (nunca usados pelo fluxo principal) + whale_bets (usado pelo whale-monitor, sub-projeto 5)
 └── config/           # Carregamento de config.yaml
 ```
 
 ### Módulos parcialmente implementados (existem, não estão no caminho de execução)
 
-- `src/research/` — agregador multi-fonte completo, nunca chamado por `index.ts`
-- `src/ai/` — chain MiniMax completo, nunca chamado por `index.ts`
+- `src/research/` — agregador multi-fonte completo, nunca chamado por `index.ts` (o bot de trading real)
+- `src/ai/` — cliente Jev completo, nunca chamado por `index.ts`
 - `src/bankroll/` — Kelly criterion, nunca chamado (usa `safety/position-limits.ts` em vez disso)
-- `src/db/` — schema definido, nunca escrito/lido pelo fluxo principal
+- `src/db/` — tabelas `source_ratings`/`source_feeds`/`research_results` definidas, nunca escritas/lidas pelo fluxo principal. A tabela `whale_bets` **é** ativamente escrita/lida, mas só pelo `src/whale-monitor/` (serviço Railway separado) — não pelo bot de trading.
+- `src/whale-monitor/` — serviço completo e rodando em produção (Railway, serviço próprio), mas só coleta dado — não decide nem executa nada no bot de trading.
 
 ---
 
@@ -213,7 +214,9 @@ src/
 | CLOB REST (ordens) | `https://clob.polymarket.com`, `@polymarket/clob-client-v2` | L2 ECDSA via `PRIVATE_KEY` |
 | CLOB WebSocket | `wss://ws-subscriptions-clob.polymarket.com/ws/market` | pública |
 | RPC Polygon | `viem` `fallback()` sobre `https://1rpc.io/matic`, `https://polygon-bor-rpc.publicnode.com`, `https://polygon.drpc.org` (verificados ao vivo), override do primeiro via `POLYGON_RPC_URL` | — |
-| MiniMax AI | `https://api.minimax.io/anthropic/v1/messages` | Bearer `MINIMAX_API_KEY` |
+| TypeSafe/Jev (IA de julgamento) | `https://api.typesafe.ai/v1/systemone` | Bearer `TYPESAFE_API_KEY` |
+| Polymarket Data API v2 (posições, trades, leaderboard — usado pelo whale-monitor) | `https://data-api.polymarket.com/v2` | pública, sem chave |
+| Google News RSS (sentimento de notícia) | `https://news.google.com/rss/search` | pública, sem chave |
 | NewsData.io / Google CSE / CoinGecko / Binance WS / API-Football | ver `.env.example` | chaves opcionais por fonte |
 | Twitter (Tweepy) / Reddit (PRAW) / Crawl4AI | subprocessos Python (`scripts/*.py`) | credenciais opcionais |
 | Telegram | Telegraf | Bearer `TELEGRAM_BOT_TOKEN` |
@@ -237,7 +240,8 @@ Sem CI configurado — testes não rodam automaticamente em push.
 Toda a configuração fica em `config.yaml`:
 
 ```yaml
-dryRun: false  # true = sem trades reais — HOJE ESTÁ COMMITADO COMO false, cuidado ao clonar
+dryRun: true  # true = sem trades reais (DEFAULT REAL COMMITADO, corrigido no sub-projeto 3). Precisa ser
+              # explicitamente setado pra false pra operar com dinheiro real — nunca commitar false como default.
 polymarket:
   host: https://clob.polymarket.com
   chainId: 137
@@ -248,13 +252,24 @@ safety:
   drawdownKillSwitchPct: 0.15 # Kill switch com 15% de drawdown total
 ```
 
-Variáveis de ambiente necessárias:
+Variáveis de ambiente necessárias (bot de trading):
 
 ```
-PRIVATE_KEY          # Chave privada da carteira MetaMask (EOA) na Polygon
+PRIVATE_KEY           # Chave privada da carteira MetaMask (EOA) na Polygon
 DEPOSIT_WALLET_ADDRESS  # Definida no .env.example mas não usada no código atual (modo EOA não precisa)
-TELEGRAM_BOT_TOKEN   # Token do bot Telegram (opcional)
-MINIMAX_API_KEY      # Chave da API de IA
+TELEGRAM_BOT_TOKEN    # Token do bot Telegram (opcional)
+POLYMARKET_PROXY_URL  # Proxy socks5h:// — necessário pra passar no geoblock a partir do Brasil
+TYPESAFE_API_KEY      # Chave da API de IA (Jev) — só usada pelo pipeline de research, não pelo trading real
+```
+
+Variáveis de ambiente adicionais do `src/whale-monitor/` (serviço Railway separado, ver Sub-projeto 5):
+
+```
+POLYMARKET_PROXY_URL  # mesmo proxy do bot, evita rate-limit por IP compartilhado do Railway
+MONITOR_TOKEN         # opcional — protege /stats e /download com ?token=
+DB_PATH               # opcional — default /data/polymarket.db (mesmo default do bot, mas serviços separados = volumes separados; recomendo setar explícito, ex. /data/whale-monitor.db, pra evitar confusão)
+MIN_BET_USD           # opcional — default 20000
+RAILPACK_CONFIG_FILE  # OBRIGATÓRIO nesse serviço = railpack.whale-monitor.json, senão herda o deploy do bot de trading
 ```
 
 ---
@@ -344,6 +359,39 @@ Não é vitória disfarçada de fracasso nem fracasso disfarçado de vitória �
 
 ---
 
+## Sub-projeto 5: Sinal de "Carteira Nova/Dormente" (Copy Trading) — validado com edge real, monitor ao vivo rodando em produção separada
+
+Sessão de 22-23/set/2026. Motivação: o sub-projeto 4 (sentimento de notícia) não achou edge — o usuário propôs uma hipótese alternativa e mais simples: **uma carteira desconhecida ou dormente que de repente aposta alto é, por si só, um sinal** (o tipo de coisa que comunidades de whale-watching cripto chamam de "sleeper wallet" — faz sentido que quem tem informação real evite reputação pública e use carteira nova pra se esconder).
+
+**Base técnica**: a Polymarket expõe uma API pública, sem autenticação (`data-api.polymarket.com/v2`) com posição, histórico de trade e leaderboard de qualquer carteira — achada e explorada nesta sessão, nunca usada antes no projeto.
+
+**Metodologia final** (`src/research/whale-signal.ts`, compartilhado entre o backtest e o monitor ao vivo): pra cada aposta grande (≥$20k) detectada, reconstrói se a carteira era nova (≤3 trades antes) ou dormente (≥14 dias quieta) **no momento exato daquela aposta**, usando só o histórico da própria carteira (fato on-chain, sem risco de vazamento de informação futura — diferente do sub-projeto 4). Pontua por **edge real** (`payout - preço pago`), não por taxa de acerto bruta — apostar a $0,80 e ganhar 80% das vezes é zero de edge, o preço já embutia isso.
+
+**4 rodadas de backtest, cada uma achando e corrigindo um problema real:**
+
+1. Amostra pequena ($100k+, n=28, 22 eventos): **45,8% de ROI** — parecia excelente, mas amostra pequena demais pra confiar.
+2. Amostra ampliada ($20k+, n=79): ROI caiu pra **15,4%**, e o bucket de "confronto direto" (que parecia ótimo) virou **-1,0%** — clássica regressão à média de amostra pequena. Achado que quase passou batido: **33% da amostra era o mesmo evento real** (decisão de juros do Fed, fatiada em 4 mercados diferentes) — corrigido com agrupamento por evento real (`eventSlug` da Gamma), não por mercado individual.
+3. **Comparação de controle adicionada** (o teste que faltava): será que "carteira nova/dormente" adiciona algo, ou "aposta grande generica" já basta? Resultado real, com amostra grande — **carteira nova/dormente: 11,2% de ROI (n=79, $5,2M apostado) vs carteira estabelecida: 2,2% de ROI (n=2.445, $138,6M apostado)**. O filtro adiciona valor real, ~5x o edge da população geral de apostadores grandes — confirma a hipótese original, não é só "aposta grande é informativa".
+4. **Checagem de impacto de preço** (será que dá pra copiar de verdade, ou o edge só existe no preço que a baleia pegou?): testado contra o histórico real de preço em 4 apostas (a tela de negociação real, não um resumo). Em mercados de "quem vai ganhar" pré-jogo, o preço ficou parado por 15-25 minutos depois da entrada — copiar com atraso de minutos captura quase todo o edge. Em mercado ao vivo (e-sports em andamento), o preço se move rápido por causa do jogo real, não da entrada da baleia — WebSocket ajudaria mais aqui especificamente.
+
+**Ressalva de metodologia** (achado durante revisão): apostas a preço $1,00 (certeza total, sem potencial de lucro) entram no denominador do ROI com edge ≈0, empurrando o número agregado pra baixo sem serem nem positivas nem negativas de verdade — não filtradas ainda, então os números de ROI acima incluem esse efeito de diluição.
+
+**Bugs reais achados e corrigidos no caminho** (documentados nos commits): paginação que descartava filtro nas páginas seguintes (fazia parecer que limiar baixo "trava em rajada de mercado", quando era um bug de URL); parâmetro `condition_ids` da Gamma não aceita vírgula, precisa repetir o parâmetro; Gamma exige `closed=true` explícito, senão só retorna mercado aberto; retry com backoff pra erro 5xx transitório da API.
+
+### Monitor ao vivo — rodando em produção, serviço Railway separado
+
+**`src/whale-monitor/`**, deployado em 23/set/2026 como serviço Railway **independente** do bot de trading (mesmo repositório, `railpack.whale-monitor.json` próprio via env var `RAILPACK_CONFIG_FILE` — necessário porque o `railpack.json` da raiz, usado pelo bot, sobrescreveria o comando de start do monitor também). Roda 24/7 sem depender do computador de ninguém:
+
+- **Coleta contínua**: pergunta pro feed de apostas grandes a cada ~20s, classifica cada carteira (novo/dormente vs estabelecida) e salva **os dois grupos** — o grupo de controle precisa continuar crescendo pra comparação continuar valendo.
+- **Backfill de resultado**: a cada ~15min, rechecha apostas pendentes contra a Gamma e preenche resultado real + lucro/prejuízo assim que o mercado resolve.
+- **Persistência**: SQLite (tabela `whale_bets` em `src/db/schema.ts`), sobrevive a restart/redeploy (paginação de catch-up recupera o que perdeu durante o tempo fora do ar, até 50 páginas de histórico).
+- **Acesso aos dados**: `/health` (aberto), `/stats` e `/download` (protegidos por `?token=` opcional via `MONITOR_TOKEN`) — `/download` gera um snapshot consistente (`VACUUM INTO`) antes de servir, não faz stream do arquivo sendo escrito ao vivo.
+- **Não aposta nada, não decide nada** — só coleta. Mesma regra do sub-projeto 4: sinal de research fica desconectado do caminho de trading real até decisão explícita em contrário.
+
+**Estado atual**: rodando, acumulando dado real desde 23/set/2026. Próxima decisão (não tomada ainda): esperar volume suficiente (idealmente algumas semanas, centenas de eventos distintos) antes de qualquer análise mais fina (segmentar por categoria, tamanho relativo ao mercado, etc.) — a mesma amostra pequena que gerou o 45,8%→15,4% de regressão à média nesta sessão é exatamente o risco de tentar cortar os dados demais cedo demais.
+
+---
+
 ## Próximos Passos (ordem sugerida)
 
 1. ~~Fazer o depósito único via Bridge API~~ ✅ **feito** (21/set/2026): `tx 0x045a9b98...`, $3.00 pUSD confirmados on-chain em `0xA53EE08...`. A aposta de teste resolveu e pagou (chegou a $3.28), e depois esse saldo foi usado pra validar ordem real no item 9 — saldo atual **$2.26 pUSD** (posição de $1 no mercado do Fed, `status: matched`, ver item 9). Restam ~$6.21 em USDC nativo na EOA.
@@ -356,6 +404,7 @@ Não é vitória disfarçada de fracasso nem fracasso disfarçado de vitória �
 8. ~~Corrigir os bugs críticos do Safety Module listados acima antes de voltar a rodar com `dryRun: false`.~~ ✅ **feito** (22/set/2026) — sub-projeto 3 completo (`docs/superpowers/plans/2026-09-21-safety-module-correctness.md`): wiring de `addBet()`/`recordTrade()` no path real, fix do mutex leak universal, fix do sinal de `dailyLoss`, `/pause`/`/resume` sem crash, checagem de saldo + confirmação on-chain antes de reportar sucesso, `dryRun: true` como default commitado, alerta via Telegram no geoblock, e persistência do safety state em disco (commits `5f06351b`, `f44869da`, `c9368cd2`, `9a823386`, `1b1a7f8a`, `92890f95`). Build limpo e 39/39 testes passando. **Nota**: o skip do safety module inteiro em dry-run (`checkBet()` sempre `passed: true`) é comportamento intencional do modo dry-run, não um bug — não foi alterado por este plano. **Nota 2**: a persistência do safety state tem a ressalva sobre o volume do Railway descrita no item acima (Problemas Conhecidos) — sobrevive a restart do mesmo container, não necessariamente a um redeploy sem `SAFETY_STATE_FILE` apontando pro volume montado.
 9. ✅ **Checkpoint de teste real (antigo `01-03`) — fechado, com ordem real casada (`status: matched`) e saldo debitado de verdade**: 3 rodadas até chegar num resultado limpo. **Rodada 1** (sem proxy): 403 geoblock — mas isso bloqueia antes de qualquer verificação de assinatura, não provava nada sobre `POLY_1271`. No caminho achei e corrigi um bug real: `placeMarketOrder()`/`placeLimitOrder()` retornavam `success: true` incondicionalmente sem checar `result.success`/`errorMsg` do CLOB (commit `0e6f70fc`). **Rodada 2** (proxy da Índia aplicado): ordem aceita (`orderID` real, sem 403), mas `status: "delayed"`, saldo não mudou — e o mercado usado (NFL, `endDate` já tinha passado ~1h15 na hora do teste) confundia o resultado. Reportar isso como "filled" teria sido o mesmo tipo de erro do bug do `executedPrice`, então corrigi o código pra reportar o `status` real do CLOB em vez de assumir preenchimento (commit `01f038c9`). **Rodada 3** (mercado de longo prazo — Fed, 36 dias até o vencimento — com o fix do status): `{"success":true,"orderID":"0x2dafd698...","txHash":"0x622f0a66...","status":"matched"}`, saldo caiu de $3.28 pra $2.26 de verdade. **Isso prova `POLY_1271` assinando e executando ordem real, sem ambiguidade.** Achado extra registrado no spec do sub-projeto 2: setar `HTTP_PROXY`/`HTTPS_PROXY` como env var literal quebra a autenticação (axios tenta proxy HTTP puro numa URL SOCKS5) — corrigido lendo de uma variável nova, `POLYMARKET_PROXY_URL`, passada explícita via `getProxyForUrl`. Notificação do Telegram ainda não testada.
 10. 🔶 **Decisão de provider de IA tomada (22/set/2026): TypeSafe/Jev, não MiniMax.** `src/ai/minimax.ts` (a conta MiniMax cotada aqui antes não tem plano/crédito ativo, segue não usada) foi substituída como decisão de provider pelo sub-projeto 4: `src/ai/jev.ts`, com `TYPESAFE_API_KEY` real no `.env`, confirmado funcionando em chamadas ao vivo. **O pipeline de research (3 estratégias, Google News RSS, Crawl4AI, backtest) foi construído e validado com dados reais, em 4 rodadas de backtest** — números completos e a leitura honesta final (sem edge em limiar de preço; vazamento real descoberto e documentado pra evento genuíno, não uma resposta positiva nem negativa) estão só na seção "Sub-projeto 4" acima, não repetidos aqui pra evitar duas fontes de verdade divergentes. Por isso **nada disso foi conectado ao caminho de decisão de trading** — isso continua sendo uma decisão futura distinta (sub-projeto 5, ainda em aberto), e só faria sentido revisitar depois de implementar uma data de corte com margem real (não `resolveDate` cru) pra evento genuíno e validar de novo. O bot em produção continua decidindo só por preço/liquidez.
+11. 🔶 **Sinal de "carteira nova/dormente" validado com controle real, monitor ao vivo deployado (23/set/2026).** Backtest com comparação de controle mostrou edge real (~11,2% ROI pra carteira nova/dormente vs ~2,2% pra carteira estabelecida, mesma amostra) — números completos, ressalvas de metodologia e os bugs achados no caminho estão na seção "Sub-projeto 5" acima. `src/whale-monitor/` está rodando 24/7 em produção como serviço Railway **separado** do bot de trading, só coletando dado real (nenhuma aposta, nenhuma decisão). **Decisão em aberto, não tomada**: quando/se esse sinal deve alimentar decisão de trading real — depende de acumular volume suficiente (semanas, centenas de eventos) antes de qualquer corte mais fino dos dados, pro mesmo risco de regressão à média que apareceu no próprio backtest.
 
 ---
 
