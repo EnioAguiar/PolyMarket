@@ -6,7 +6,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "whale-monitor": "node dist/whale-monitor/index.js",
-    "dev": "ts-node/esm src/index.ts",
+    "dev": "node --loader ts-node/esm src/index.ts",
+    "validate-research": "node --loader ts-node/esm scripts/validate-research.ts",
+    "validate-whale-signal": "node --loader ts-node/esm scripts/validate-whale-signal.ts",
     "test": "vitest",
     "lint": "eslint src --ext .ts"
   },

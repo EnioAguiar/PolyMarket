@@ -317,7 +317,7 @@ async function runBacktest(): Promise<void> {
 
 async function main(): Promise<void> {
   // getOrderBook() (used by Run A for mid-prices) requires the CLOB client
-  // singleton to already be initialized -- src/main.ts does this the same
+  // singleton to already be initialized -- src/index.ts does this the same
   // way in its non-dry-run path. Without it every getOrderBook() call
   // throws "CLOB client not initialized" and Run A's mid-prices are all
   // N/A (confirmed live: this is exactly what happened before this init

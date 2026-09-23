@@ -1,5 +1,6 @@
 # Polymarket Bot Configuration
-# All configuration is managed through this file (not env vars)
+# Trading/safety parameters live here. Secrets, endpoints, and credentials come from
+# environment variables instead (see .env.example) — the two coexist.
 
 dryRun: true  # true = log decisions only, false = execute real trades. MUST be explicitly
               # flipped to false to trade real money — never commit false as the default.

@@ -16,16 +16,16 @@ O bot monitora mercados em tempo real via WebSocket, coleta evidências de múlt
 
 ## Status Atual (setembro/2026)
 
-Projeto parado desde **05/jun/2026** (último commit `93fc1628`), no meio da migração para o **CLOB V2** da Polymarket (V2 foi ao ar em 28/abr/2026, antes da parada). Este README substitui a antiga pasta `.planning/` (gerada por um skill de planejamento de sessões anteriores) — o conteúdo relevante foi resumido abaixo antes de apagá-la.
+Projeto ficou parado de **05/jun/2026** até **21/set/2026** (último commit antes da retomada: `93fc1628`), no meio da migração para o **CLOB V2** da Polymarket (V2 foi ao ar em 28/abr/2026, antes da parada). **Retomado em 21/set/2026** — sub-projetos 1 a 5 abaixo documentam o trabalho desta nova fase (correção de carteira/infra/safety, pipeline de research, sinal de whale-signal com monitor ao vivo em produção). Este README substitui a antiga pasta `.planning/` (gerada por um skill de planejamento de sessões anteriores) — o conteúdo relevante foi resumido abaixo antes de apagá-la.
 
 **Progresso por milestone:**
 
 | Milestone | Escopo | Status |
 |-----------|--------|--------|
 | v1.0 — Monitoring Only | WebSocket, pesquisa multi-fonte, safety module, Telegram, deploy Railway | ✅ Completo (7 fases) |
-| v1.1 — Production Betting | Execução real de ordens, pipeline de pesquisa conectado, decisão via IA | 🔶 Fase 1 (execução real) incompleta; fases 2 (pesquisa) e 3 (IA) nunca iniciadas |
+| v1.1 — Production Betting | Execução real de ordens, pipeline de pesquisa conectado, decisão via IA | ✅ Fase 1 (execução real) fechada 21/set/2026 (ver item 9); fases 2 (pesquisa) e 3 (IA) validadas como sub-projetos 4-5, mas **não conectadas** ao caminho de decisão real por escolha explícita — ver "Módulos parcialmente implementados" |
 
-**Onde exatamente parou:** dentro da Fase 1 (v1.1), os planos `01-01` (setup do client EOA) e `01-02` (slippage/bankroll) foram aplicados, mas o checkpoint final `01-03` — testar uma aposta real pequena e confirmar no Polygonscan — **nunca foi validado** (sem `SUMMARY.md`, sem confirmação humana). Os commits seguintes (`969ad157`…`08d377a9`) são tentativas de destravar esse teste mexendo em RPC, endereço de contrato e tipo de assinatura, sem sucesso confirmado.
+**Onde exatamente parou:** dentro da Fase 1 (v1.1), os planos `01-01` (setup do client EOA) e `01-02` (slippage/bankroll) foram aplicados, mas o checkpoint final `01-03` — testar uma aposta real pequena e confirmar no Polygonscan — ficou **sem validação** até essa retomada (sem `SUMMARY.md`, sem confirmação humana). Os commits seguintes (`969ad157`…`08d377a9`) foram tentativas de destravar esse teste mexendo em RPC, endereço de contrato e tipo de assinatura, sem sucesso confirmado na época. ✅ **Fechado nesta sessão** (21/set/2026, ver item 9 dos Próximos Passos): ordem real casada (`status: matched`), saldo debitado de verdade.
 
 ---
 
@@ -42,15 +42,15 @@ Projeto parado desde **05/jun/2026** (último commit `93fc1628`), no meio da mig
 
 | Modo | Signature Type (`@polymarket/clob-client-v2`) | Funder | Situação |
 |------|----------------|--------|------------|
-| EOA — **é o que `src/api/clob.ts` usa hoje** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Errado pra essa conta — confirmado |
+| EOA — usado **antes de 21/set/2026** | `SignatureTypeV2.EOA = 0` | Igual ao signer | Errado pra essa conta — confirmado, substituído abaixo |
 | **Deposit Wallet — confirmado por bytecode** | `SignatureTypeV2.POLY_1271 = 3` | `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a wallet, não a EOA) | É o que os commits antigos (`d23d8a49`, `a746c7ba`, `ead039d5`) tentaram e abandonaram cedo demais — a decisão de abandonar era a errada. |
 
 **O que não muda:** a chave privada (signer) continua sendo a mesma da EOA `0x18a658c6...`. O que muda é `funderAddress` e `signatureType` em `createClobClient()` (`src/api/clob.ts`).
 
 
-### `DEPOSIT_WALLET_ADDRESS` do `.env` está desatualizado — trocar pelo endereço novo
+### ✅ `DEPOSIT_WALLET_ADDRESS` corrigido (21/set/2026)
 
-O valor atual do `.env` (`0x723b9273D0E7F82e87552A441Fe5772f101488e3`) é a conta do **Google/Magic Link** ("Untidy-Mile", id `7629704`, criada 20/abr/2026) — confirmado via `polymarket.com/api/profile/userData` e via bytecode on-chain (clone EIP-1167 apontando pra `0x44e999d5c2f66ef0861317f9a4805ac2e90aeb4f`, a Proxy Factory da própria Polymarket). Login por Google passa por Magic Link, que gerencia a chave por trás — **não existe private key exportável dali**, o bot nunca teria como assinar por essa conta, e ela está zerada de qualquer forma. Descartar esse endereço do `.env` e trocar por `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a conta nova, ligada à EOA que o bot já controla).
+O valor antigo do `.env` (`0x723b9273D0E7F82e87552A441Fe5772f101488e3`) era a conta do **Google/Magic Link** ("Untidy-Mile", id `7629704`, criada 20/abr/2026) — confirmado via `polymarket.com/api/profile/userData` e via bytecode on-chain (clone EIP-1167 apontando pra `0x44e999d5c2f66ef0861317f9a4805ac2e90aeb4f`, a Proxy Factory da própria Polymarket). Login por Google passa por Magic Link, que gerencia a chave por trás — **não existe private key exportável dali**, o bot nunca teria como assinar por essa conta, e ela estava zerada de qualquer forma. Trocado no `.env` por `0xA53EE08c9A1E8C63Bb27162dc53A1af8d2Bc3F7b` (a conta nova, ligada à EOA que o bot já controla) — confirmado como valor atual.
 
 Tentativa de calcular esse endereço via `deriveProxyWallet()` da lib já instalada (`@polymarket/builder-relayer-client`) deu um terceiro endereço (`0xA9a78a08...`) que não bate com nada — confirmado inconclusivo por bug documentado da lib ([Polymarket/rs-clob-client#272](https://github.com/Polymarket/rs-clob-client/issues/272), hash de init code desatualizado). **A fonte de verdade é sempre a API/UI da Polymarket, não cálculo local.**
 
@@ -82,11 +82,11 @@ Endereço EOA (signer) `0x18a658c68cb3b21a0730F09703cF42c6E5BfD3cE` — endereç
 Duas camadas diferentes, não confundir:
 
 - **Contrato on-chain** (`CollateralOnramp.wrap()`, [docs.polymarket.com/concepts/pusd](https://docs.polymarket.com/concepts/pusd)): só aceita **USDC.e** como `_asset`. Chamar isso direto com USDC nativo reverte.
-- **Bridge API oficial** (`bridge.polymarket.com`, [docs.polymarket.com/trading/bridge/deposit](https://docs.polymarket.com/trading/bridge/deposit)): "**You can deposit either USDC (native) or USDC.e (bridged)** as the source asset... wrapped into pUSD via the Collateral Onramp" — aceita os dois, inclusive na própria Polygon (`chainId 137`, mínimo **$2**, [supported-assets](https://docs.polymarket.com/trading/bridge/supported-assets)). Nossos ~$9.21 em USDC nativo passam tranquilo no mínimo.
+- **Bridge API oficial** (`bridge.polymarket.com`, [docs.polymarket.com/trading/bridge/deposit](https://docs.polymarket.com/trading/bridge/deposit)): "**You can deposit either USDC (native) or USDC.e (bridged)** as the source asset... wrapped into pUSD via the Collateral Onramp" — aceita os dois, inclusive na própria Polygon (`chainId 137`, mínimo **$2**, [supported-assets](https://docs.polymarket.com/trading/bridge/supported-assets)). Nossos ~$6.21 em USDC nativo (ver tabela acima) passam tranquilo no mínimo.
 
 **Conclusão prática:** não precisa fazer swap manual em DEX (QuickSwap/Uniswap) pra converter USDC nativo → USDC.e antes — isso seria gastar em slippage numa quantia pequena à toa. O caminho certo é: `POST bridge.polymarket.com/deposit` com o endereço da carteira → pegar o bridge address tipo `evm` → mandar os USDC nativo (já na Polygon) pra esse endereço → a Polymarket converte e credita pUSD automaticamente. É um passo único de depósito, não algo que o bot precisa fazer a cada ciclo.
 
-**Conclusão sobre o endereço hardcoded hoje:** a constante `PUSD_ADDRESS` em `src/api/clob.ts` aponta pra `0x2791...` (USDC.e) — mas o saldo real está em USDC nativo, então **nem esse endereço nem o nome da constante batem com a realidade da carteira**. Depois do depósito via Bridge API, o saldo relevante pra bankroll passa a ser o de **pUSD** (`0xC011a7E1...`), não USDC.e nem USDC nativo — `getUSDCBalance()` precisa ler dali.
+**✅ Corrigido (21/set/2026, sub-projeto 1):** a constante `PUSD_ADDRESS` em `src/api/clob.ts` foi corrigida pra `0xC011a7E1...` (pUSD real, não mais `0x2791...` USDC.e) e a função foi renomeada de `getUSDCBalance()` pra `getPUSDBalance()` — confirmado ao vivo retornando `3.28066`, batendo exato com `getBalanceAllowance()` (ver item 3 dos Próximos Passos).
 
 ---
 
@@ -104,7 +104,7 @@ Confirmado em [docs.polymarket.com/api-reference/geoblock](https://docs.polymark
 
 **Por que rodar num servidor cloud não resolve sozinho:** o geoblock verifica o IP de origem da requisição, não a nacionalidade do dono da carteira — mas **EUA está no mesmo tier de bloqueio que o Brasil** (close-only frontend+API), então um deploy Railway numa região US seria tão bloqueado quanto uma casa no Brasil. Servidores primários da Polymarket ficam em `eu-west-2`; a doc cita `eu-west-1` (Irlanda) como "closest non-georestricted region" — Irlanda está só no tier close-only-frontend (API livre). `railway.json`/`railpack.json` não fixam região no repo (é configurado no dashboard do Railway, fora do código) — **região atual não confirmada**. Isso é resolvido pelo proxy já usado no projeto — `proxy-agent`/`socks-proxy-agent` no `package.json` (`global-agent` estava listado ali antes, mas era incompatível com SOCKS5 e foi removido no sub-projeto 2, ver item 4 dos Próximos Passos e `docs/superpowers/plans/2026-09-21-infra-resilience.md`) — essa é a mitigação real, não a região do Railway em si.
 
-**Risco parcialmente fechado (21/set/2026):** `src/api/geoblock.ts` checa `/api/geoblock` no startup e desliga o trading real (`createClobClient()` inalcançável) se `blocked: true`, usando o mesmo caminho de proxy que o resto do tráfego de trading. Testado ao vivo: `{"blocked":false,"country":"IN","region":"MH"}`, confirmando que o guard enxerga o egress real via proxy. **Falta ainda**: não alerta via Telegram nem aborta o processo — só loga erro estruturado e roda em modo degradado (bankroll 0). Ver item 6 dos Próximos Passos e `docs/superpowers/plans/2026-09-21-infra-resilience.md`.
+**Risco fechado (21/set/2026, alerta Telegram fechado em 22/set/2026, sub-projeto 3):** `src/api/geoblock.ts` checa `/api/geoblock` no startup e desliga o trading real (`createClobClient()` inalcançável) se `blocked: true`, usando o mesmo caminho de proxy que o resto do tráfego de trading. Testado ao vivo: `{"blocked":false,"country":"IN","region":"MH"}`, confirmando que o guard enxerga o egress real via proxy. Alerta via Telegram adicionado no sub-projeto 3 — o processo continua rodando de propósito em modo degradado (bankroll 0), não aborta, mas agora notifica. Ver item 6 dos Próximos Passos e `docs/superpowers/plans/2026-09-21-infra-resilience.md`.
 
 ---
 
@@ -168,7 +168,7 @@ WebSocket Polymarket
 | Linguagem | TypeScript 5.x (Node.js ≥ 20.10) + Python 3.13 (scrapers) |
 | Blockchain | Polygon (chainId 137) |
 | Exchange API | Polymarket CLOB API **V2** (`https://clob.polymarket.com`, desde 28/abr/2026) |
-| SDK | `@polymarket/clob-client-v2` — **pinado em `1.0.3-canary.0`, defasado** (estável atual: `1.1.0`) |
+| SDK | `@polymarket/clob-client-v2` `^1.1.0` — atualizado nesta sessão (era `1.0.3-canary.0`) |
 | WebSocket | `wss://ws-subscriptions-clob.polymarket.com/ws/market` (mercados em tempo real) |
 | IA | TypeSafe/Jev (`src/ai/jev.ts`, substitui MiniMax — decisão tomada no sub-projeto 4, 22/set/2026; só usado pelo pipeline de research, não conectado ao caminho de decisão de trading) |
 | Banco de dados | SQLite (`better-sqlite3`) + Drizzle ORM |
@@ -183,16 +183,18 @@ WebSocket Polymarket
 ```
 src/
 ├── index.ts          # Entry point PRINCIPAL — servidor HTTP + WebSocket + ciclo event-driven
-├── whale-monitor/    # Serviço Railway SEPARADO (22/set/2026) — coleta ao vivo do sinal "carteira nova/dormente aposta alto", grava em src/db (whale_bets), NÃO conectado ao bot de trading — ver "Sub-projeto 5"
-├── ai/               # jev.ts (TypeSafe/Jev) — usado só pelo pipeline de research (scripts/validate-research.ts, whale-monitor); não conectado ao fluxo principal de trading
+├── whale-monitor/    # Serviço Railway SEPARADO (23/set/2026) — coleta ao vivo do sinal "carteira nova/dormente aposta alto", grava em src/db (whale_bets), NÃO conectado ao bot de trading — ver "Sub-projeto 5"
+├── ai/               # jev.ts (TypeSafe/Jev) — usado só por research/strategies/ (sentiment.ts, tail-end.ts), por sua vez só chamado por scripts/validate-research.ts; whale-monitor NÃO usa IA. minimax.ts/chain.ts/validation.ts foram removidos (código morto, sub-projeto de limpeza)
 ├── research/         # 8+ fontes de research (news, social, cripto, scraping) + whale-signal.ts (sinal de "copy trading") — implementado, não conectado ao trading real
 ├── bankroll/         # Kelly criterion sizing — implementado, não conectado (safety/position-limits.ts é o usado)
 ├── betting/          # CycleManager (3 apostas/ciclo, espera 24h), MarketMutex (dedup por market ID)
-├── execution/         # Slippage (10% máx), arbitragem, re-export das funções de ordem do CLOB
+├── execution/        # Slippage (10% máx), arbitragem, re-export das funções de ordem do CLOB
 ├── safety/           # 3 camadas de risco: posição (BANK-01), perda diária (BANK-02), drawdown (BANK-03)
 ├── api/              # Clientes: clob.ts (CLOB V2), polymarket.ts (Gamma REST), http.ts (RPC Polygon), telegram.ts
 ├── websocket/        # Client WS, EventRouter, SubscriptionManager
 ├── db/               # Schema SQLite via Drizzle: source_ratings/source_feeds/research_results (nunca usados pelo fluxo principal) + whale_bets (usado pelo whale-monitor, sub-projeto 5)
+├── logging/          # Wrapper Pino (getLogger)
+├── types/            # Tipos compartilhados (SafetyState, etc.)
 └── config/           # Carregamento de config.yaml
 ```
 
@@ -229,7 +231,7 @@ src/
 
 | Coberto | Não coberto (risco) |
 |---------|----------------------|
-| `execution/arbitrage.ts`, `execution/slippage.ts`, `bankroll/position-sizing.ts`, `research/` (social) | **`safety/` inteiro (0% — maior risco financeiro)**, `betting/cycle.ts`, `betting/mutex.ts`, `websocket/`, `api/clob.ts`, `api/telegram.ts`, `index.ts`/`main.ts` |
+| `execution/arbitrage.ts`, `execution/slippage.ts`, `bankroll/position-sizing.ts`, `research/` (social, classify, google-news-rss, crawl4ai, strategies sentiment/tail-end/resolution-sniping), `ai/jev.ts`, `api/clob.ts` (`getFunderAddress()`), `safety/daily-loss.ts` + `safety/index.ts` (via `market-resolution.test.ts`, mockando `api/clob.ts`), `safety/persistence.ts`, `betting/index.ts` (CycleManager, via o mesmo teste) | `safety/position-limits.ts` e `safety/drawdown.ts` isolados (só cobertos indiretamente), `betting/mutex.ts`, `websocket/`, `api/clob.ts` (envio real de ordem), `api/telegram.ts`, `index.ts`, `whale-monitor/`, `research/whale-signal.ts` |
 
 Sem CI configurado — testes não rodam automaticamente em push.
 
@@ -237,7 +239,7 @@ Sem CI configurado — testes não rodam automaticamente em push.
 
 ## Configuração
 
-Toda a configuração fica em `config.yaml`:
+Parâmetros de trading/safety ficam em `config.yaml`; segredos, endpoints e credenciais vêm de variáveis de ambiente (ver seção abaixo) — as duas coexistem, não é "tudo num lugar só":
 
 ```yaml
 dryRun: true  # true = sem trades reais (DEFAULT REAL COMMITADO, corrigido no sub-projeto 3). Precisa ser
@@ -256,11 +258,20 @@ Variáveis de ambiente necessárias (bot de trading):
 
 ```
 PRIVATE_KEY           # Chave privada da carteira MetaMask (EOA) na Polygon
-DEPOSIT_WALLET_ADDRESS  # Definida no .env.example mas não usada no código atual (modo EOA não precisa)
+DEPOSIT_WALLET_ADDRESS  # OBRIGATÓRIA — endereço da Deposit Wallet (funder, POLY_1271), ex. 0xA53EE08...;
+                        # src/api/clob.ts lança erro no startup se faltar
 TELEGRAM_BOT_TOKEN    # Token do bot Telegram (opcional)
+TELEGRAM_CHAT_ID      # Chat que recebe notificações (status/erro/aposta/geoblock) — sem ela, toda
+                       # notificação falha silenciosamente (opcional, mas recomendada)
 POLYMARKET_PROXY_URL  # Proxy socks5h:// — necessário pra passar no geoblock a partir do Brasil
 TYPESAFE_API_KEY      # Chave da API de IA (Jev) — só usada pelo pipeline de research, não pelo trading real
+POLYGON_RPC_URL       # opcional — sobrepõe o primeiro RPC da lista de fallback
+SAFETY_STATE_FILE     # opcional — default data/safety-state.json; no Railway apontar pro volume: /data/safety-state.json
+TEST_EXECUTION        # opcional — flag de teste, ver src/index.ts
+PORT                  # opcional — porta do servidor HTTP, Railway injeta automaticamente
 ```
+
+Chaves opcionais do pipeline de research (news/social/cripto, não conectado ao trading real): ver bloco "Research APIs" completo em `.env.example`.
 
 Variáveis de ambiente adicionais do `src/whale-monitor/` (serviço Railway separado, ver Sub-projeto 5):
 
@@ -280,14 +291,21 @@ RAILPACK_CONFIG_FILE  # OBRIGATÓRIO nesse serviço = railpack.whale-monitor.jso
 # Instalar dependências
 npm install
 
-# Desenvolvimento (com hot reload)
+# Desenvolvimento (bot de trading, sem watch/hot reload — reinicie manualmente após editar)
 npm run dev
 
-# Build para produção
+# Build para produção (compila src/ inteiro, inclusive whale-monitor/)
 npm run build
 
-# Iniciar em produção
+# Iniciar bot de trading em produção
 npm start
+
+# Iniciar whale-monitor localmente (após build) — ver Sub-projeto 5
+npm run whale-monitor
+
+# Scripts de validação/backtest (research signal e whale signal) — não fazem parte do runtime
+npm run validate-research
+npm run validate-whale-signal
 ```
 
 **Modo Dry Run:** defina `dryRun: true` em `config.yaml` para testar sem executar trades reais.
@@ -303,11 +321,14 @@ O bot roda continuamente no Railway em modo event-driven:
 3. Processa cada mercado de forma assíncrona com mutex por market ID
 4. Exponha `/health` para health check do Railway
 
+**Dois serviços Railway a partir do mesmo repositório** (ver Sub-projeto 5): o bot de trading (`railpack.json`, sem `RAILPACK_CONFIG_FILE`) e o `whale-monitor` (`railpack.whale-monitor.json`, via `RAILPACK_CONFIG_FILE=railpack.whale-monitor.json`). `railway.json` (healthcheck `/health`, volume `polymarket-data` em `/data`) é compartilhado — os dois serviços expõem `/health` e podem usar o mesmo volume (desde que `DB_PATH`/`SAFETY_STATE_FILE` apontem pra arquivos diferentes dentro dele).
+
 ---
 
-## Problemas Conhecidos (críticos, nunca corrigidos)
+## Problemas Conhecidos (histórico — maioria corrigida no sub-projeto 3)
 
-Levantados na última sessão de trabalho, ainda presentes no código:
+Levantados na sessão de trabalho de 21/set/2026; a maioria foi corrigida na mesma sessão (marcados ✅ abaixo, com commit). Mantidos aqui como registro do que estava quebrado antes:
+
 
 - ~~**`/pause` do Telegram funciona pela metade** — seta `isPaused = true` (que É checado antes de avaliar `new_market`, então bloqueia apostas novas), mas a linha seguinte chama `safetyModuleRef.forceKillSwitch(true)`, método que não existe em `SafetyModule` (`src/api/telegram.ts:122`) — isso quebra a execução do handler, o usuário nunca recebe a confirmação "⏸️ Bot paused", e nenhum estado do Safety Module é realmente afetado (o kill switch de verdade é `isKillSwitchActive()`/`resetKillSwitch()`, nunca tocado por esse comando)~~ ✅ **corrigido no sub-projeto 3** (commit `c9368cd2`) — removida a chamada a `forceKillSwitch()` (método inexistente); `/pause`/`/resume` agora só setam `isPaused` e respondem normalmente, sem crashar.
 - ~~**Mutex de mercado vaza SEMPRE, não só no erro** — `evaluateMarketForWebSocket()` é chamado sem `await` (`src/index.ts:130`); o único lugar que libera o lock é `CycleManager.resolveBet()`, que exige achar a aposta em `state.bets` — e `state.bets` fica vazio pra sempre porque **`cycleManager.addBet()` nunca é chamado em lugar nenhum do código** (confirmado por grep, zero callers). Resultado: todo mercado avaliado uma vez fica travado pra sempre — nunca reavaliado — e **o limite de 3 apostas por ciclo + pausa de 24h também nunca funcionou** (`canAcceptBet()` checa `state.bets.length >= 3`, que nunca é verdade)~~ ✅ **corrigido no sub-projeto 3** (commit `5f06351b`) — `evaluateMarketForWebSocket()` agora chama `cycleManager.addBet()` no path de sucesso e libera o lock via `try/finally` em todo outro caminho de saída (sem liquidez, safety check falhou, dry run, ordem rejeitada, etc.); o limite de 3 apostas por ciclo + pausa de 24h volta a funcionar de verdade.
