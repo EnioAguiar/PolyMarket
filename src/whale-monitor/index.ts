@@ -5,7 +5,7 @@
 //
 // What it does:
 // 1. Polls the global large-trades feed (>= $20k, matching the validated
-//    backtest threshold) every ~20s, classifies each wallet as
+//    backtest threshold) every ~60s, classifies each wallet as
 //    fresh/dormant or established at the moment of that exact trade, and
 //    persists EVERY qualifying trade (both groups -- the control
 //    comparison only stays meaningful if the established-wallet group
@@ -37,7 +37,12 @@ import {
 } from '../research/whale-signal.js';
 
 const MIN_BET_USD = Number(process.env.MIN_BET_USD) || 20000;
-const POLL_INTERVAL_MS = 20_000;
+// ~1 qualifying trade per ~9 min on the >= $20k feed; a 60s poll loses
+// nothing (classification uses each trade's own timestamp) and small pages
+// keep proxy bandwidth low. Catch-up after downtime still pages back to
+// lastSeenTimestamp, so a small page size never drops trades.
+const POLL_INTERVAL_MS = 60_000;
+const PAGE_SIZE = 20;
 const RESOLUTION_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const PORT = Number(process.env.PORT) || 8080;
 
@@ -79,7 +84,7 @@ async function primeLastSeenTimestamp(): Promise<void> {
   console.log(`[monitor] Resuming from timestamp ${lastSeenTimestamp} (${new Date(lastSeenTimestamp * 1000).toISOString()})`);
 }
 
-const MAX_CATCHUP_PAGES = 50; // bounds worst-case work after a very long outage
+const MAX_CATCHUP_PAGES = 500; // bounds worst-case work after a very long outage (~10k trades)
 
 async function ingestOnce(): Promise<void> {
   // Paginate back until reaching lastSeenTimestamp, not a fixed page count
@@ -87,7 +92,7 @@ async function ingestOnce(): Promise<void> {
   // lose any trade older than that page's oldest entry after a real
   // outage/redeploy longer than that page's time span covers, which is
   // exactly the failure mode this collector exists to avoid.
-  const batch = await fetchLargeTrades(MIN_BET_USD, MAX_CATCHUP_PAGES, lastSeenTimestamp);
+  const batch = await fetchLargeTrades(MIN_BET_USD, MAX_CATCHUP_PAGES, lastSeenTimestamp, PAGE_SIZE);
   const fresh = batch.filter((t) => t.timestamp > lastSeenTimestamp);
   if (fresh.length === 0) return;
 
@@ -225,7 +230,7 @@ function startServer(): void {
         return;
       }
       // Stream a consistent snapshot, not the live file -- review finding,
-      // 2026-09-22: the ingest loop writes to this file every ~20s, so a
+      // 2026-09-22: the ingest loop writes to this file every ~60s, so a
       // byte-for-byte stream of the live file mid-write could be served
       // corrupted/inconsistent to a downloader. VACUUM INTO produces a
       // complete, consistent copy in one call; the target must not already

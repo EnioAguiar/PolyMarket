@@ -403,9 +403,9 @@ Sessão de 22-23/set/2026. Motivação: o sub-projeto 4 (sentimento de notícia)
 
 **`src/whale-monitor/`**, deployado em 23/set/2026 como serviço Railway **independente** do bot de trading (mesmo repositório, `railpack.whale-monitor.json` próprio via env var `RAILPACK_CONFIG_FILE` — necessário porque o `railpack.json` da raiz, usado pelo bot, sobrescreveria o comando de start do monitor também). Roda 24/7 sem depender do computador de ninguém:
 
-- **Coleta contínua**: pergunta pro feed de apostas grandes a cada ~20s, classifica cada carteira (novo/dormente vs estabelecida) e salva **os dois grupos** — o grupo de controle precisa continuar crescendo pra comparação continuar valendo.
+- **Coleta contínua**: pergunta pro feed de apostas grandes a cada ~60s (página de 20 trades, resposta gzip — ~4,6 KB por consulta; antes eram 200 trades sem compressão a cada 20s, ~160 KB, o que gastou 8,6 GB de proxy), classifica cada carteira (novo/dormente vs estabelecida) e salva **os dois grupos** — o grupo de controle precisa continuar crescendo pra comparação continuar valendo.
 - **Backfill de resultado**: a cada ~15min, rechecha apostas pendentes contra a Gamma e preenche resultado real + lucro/prejuízo assim que o mercado resolve.
-- **Persistência**: SQLite (tabela `whale_bets` em `src/db/schema.ts`), sobrevive a restart/redeploy (paginação de catch-up recupera o que perdeu durante o tempo fora do ar, até 50 páginas de histórico).
+- **Persistência**: SQLite (tabela `whale_bets` em `src/db/schema.ts`), sobrevive a restart/redeploy (paginação de catch-up recupera o que perdeu durante o tempo fora do ar, até 500 páginas de 20 trades ≈ 10 mil apostas de histórico).
 - **Acesso aos dados**: `/health` (aberto), `/stats` e `/download` (protegidos por `?token=` opcional via `MONITOR_TOKEN`) — `/download` gera um snapshot consistente (`VACUUM INTO`) antes de servir, não faz stream do arquivo sendo escrito ao vivo.
 - **Não aposta nada, não decide nada** — só coleta. Mesma regra do sub-projeto 4: sinal de research fica desconectado do caminho de trading real até decisão explícita em contrário.
 

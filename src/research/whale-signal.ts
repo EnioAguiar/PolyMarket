@@ -14,6 +14,7 @@
 // price_paid; aggregate as portfolio ROI (total P&L / total staked), not
 // accuracy.
 import https from 'node:https';
+import { gunzipSync } from 'node:zlib';
 import { ProxyAgent } from 'proxy-agent';
 
 // IMPORTANT: native `fetch()` is backed by undici, which has its own
@@ -55,13 +56,17 @@ export interface RawTrade {
   outcome_index: number;
 }
 
+// Requests gzip: responses are verbose JSON (wallet bio, profile images,
+// titles per trade) and compress ~4x -- measured live, 2026-10-07: a
+// 200-trade page is 159 KB plain vs 35 KB gzipped. Every byte here is
+// billed when POLYMARKET_PROXY_URL is set.
 function httpsGetJson<T>(url: string): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: T | null }> {
   return new Promise((resolve, reject) => {
     https
-      .get(url, (res) => {
-        let data = '';
-        res.on('data', (chunk) => {
-          data += chunk;
+      .get(url, { headers: { 'Accept-Encoding': 'gzip' } }, (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
         });
         res.on('end', () => {
           const status = res.statusCode ?? 0;
@@ -70,7 +75,9 @@ function httpsGetJson<T>(url: string): Promise<{ status: number; headers: Record
             return;
           }
           try {
-            resolve({ status, headers: res.headers, body: JSON.parse(data) as T });
+            const raw = Buffer.concat(chunks);
+            const text = (res.headers['content-encoding'] === 'gzip' ? gunzipSync(raw) : raw).toString('utf8');
+            resolve({ status, headers: res.headers, body: JSON.parse(text) as T });
           } catch (error) {
             reject(error);
           }
@@ -102,15 +109,19 @@ export async function fetchJson<T>(url: string): Promise<T> {
 // off after downtime instead of guessing a fixed page count (review
 // finding, 2026-09-22: a live monitor hardcoded to 1 page would silently
 // lose everything older than that page's oldest trade after any real
-// outage/redeploy longer than that page covers).
+// outage/redeploy longer than that page covers). `pageSize` lets a frequent
+// poller ask for only what it needs: the >= $20k feed carries ~200 trades
+// per ~30h, so re-downloading 200 every poll to find 0-1 new ones was the
+// bulk of the monitor's proxy bandwidth (8.6 GB, found 2026-10-07).
 export async function fetchLargeTrades(
   minAmountUsd: number,
   maxPages: number,
-  stopAtOrBefore?: number
+  stopAtOrBefore?: number,
+  pageSize = 200
 ): Promise<RawTrade[]> {
   const trades: RawTrade[] = [];
   let cursor: string | null = null;
-  const baseParams = `filter_type=CASH&filter_amount=${minAmountUsd}&limit=200&side=BUY`;
+  const baseParams = `filter_type=CASH&filter_amount=${minAmountUsd}&limit=${pageSize}&side=BUY`;
   for (let page = 0; page < maxPages; page++) {
     // The API's own docs are explicit: on feed endpoints, re-send the same
     // filters on every page -- the cursor carries only its seek anchor, and
