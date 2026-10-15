@@ -37,6 +37,7 @@ if (proxyUrl) {
 
 export const DATA_API = 'https://data-api.polymarket.com/v2';
 export const GAMMA_API = 'https://gamma-api.polymarket.com';
+export const CLOB_API = 'https://clob.polymarket.com';
 
 export const FRESH_MAX_TRADES = 3;
 export const DORMANT_MIN_GAP_DAYS = 14;
@@ -237,6 +238,12 @@ export interface GammaOutcome {
   closed: boolean;
   outcomes: string[];
   outcomePrices: number[];
+  // Same order as outcomePrices. Scoring matches on these, not on the
+  // trade's outcome_index: the large-trades feed sometimes reports
+  // outcome_index=999 for a real Yes/No buy (found live, 2026-10-15 -- the
+  // same trade shows outcome_index=1 on the wallet's own feed), while its
+  // token_id is always correct.
+  tokenIds: string[];
   question: string;
 }
 
@@ -245,7 +252,14 @@ interface RawGammaMarket {
   closed?: boolean;
   outcomes?: string;
   outcomePrices?: string;
+  clobTokenIds?: string;
   question: string;
+}
+
+interface RawClobMarket {
+  closed?: boolean;
+  question?: string;
+  tokens?: Array<{ token_id: string; outcome: string; winner: boolean }>;
 }
 
 // Batch-fetch by condition_ids. Gamma's own default is active=true
@@ -266,6 +280,7 @@ export async function fetchOutcomesByCondition(conditionIds: string[]): Promise<
         closed: raw.closed ?? false,
         outcomes: raw.outcomes ? JSON.parse(raw.outcomes) : [],
         outcomePrices: raw.outcomePrices ? JSON.parse(raw.outcomePrices).map(Number) : [],
+        tokenIds: raw.clobTokenIds ? JSON.parse(raw.clobTokenIds) : [],
         question: raw.question,
       });
     }
@@ -273,19 +288,42 @@ export async function fetchOutcomesByCondition(conditionIds: string[]): Promise<
   return result;
 }
 
+// Single-market lookup on the CLOB API, for markets Gamma doesn't list at
+// all -- e.g. legs bought through combo ("X AND Y") trades, which the
+// large-trades feed also reports with outcome_index=999. Returns undefined
+// until the market is closed with a declared winner.
+export async function fetchClobOutcome(conditionId: string): Promise<GammaOutcome | undefined> {
+  const market = await fetchJson<RawClobMarket>(`${CLOB_API}/markets/${conditionId}`);
+  const tokens = market.tokens ?? [];
+  if (!market.closed || !tokens.some((t) => t.winner)) return undefined;
+  return {
+    closed: true,
+    outcomes: tokens.map((t) => t.outcome),
+    outcomePrices: tokens.map((t) => (t.winner ? 1 : 0)),
+    tokenIds: tokens.map((t) => t.token_id),
+    question: market.question ?? '',
+  };
+}
+
 export const TEAM_MATCHUP_PATTERN = /\bvs\.?\b/i;
 
-// Score a single resolved bet against its real outcome. Returns null if the
-// market hasn't settled to a clean 0/1 winner yet.
+// Score a single bet against its market's settlement, locating the side
+// bought by token id. Payout per share: 1 or 0 for a clean winner, 0.5 for
+// a voided market settled 50/50 (`won` is null then). Returns null while
+// the market hasn't settled, or if the token isn't one of its outcomes.
 export function scoreBet(
-  bet: LogicalBet,
+  bet: Pick<LogicalBet, 'tokenId' | 'avgPrice' | 'shares'>,
   outcome: GammaOutcome | undefined
-): { won: boolean; pnl: number } | null {
-  if (!outcome || outcome.outcomePrices.length !== 2) return null;
-  const winnerIndex = outcome.outcomePrices.findIndex((p) => p === 1);
-  if (winnerIndex === -1) return null;
-  const won = winnerIndex === bet.outcomeIndex;
-  const payout = won ? 1 : 0;
+): { outcomeIndex: number; won: boolean | null; pnl: number } | null {
+  if (!outcome || !outcome.closed || outcome.outcomePrices.length !== 2) return null;
+  const outcomeIndex = outcome.tokenIds.indexOf(bet.tokenId);
+  if (outcomeIndex === -1) return null;
+  const prices = outcome.outcomePrices;
+  let payout: number;
+  if (prices.includes(1)) payout = prices[outcomeIndex] === 1 ? 1 : 0;
+  else if (prices[0] === 0.5 && prices[1] === 0.5) payout = 0.5;
+  else return null;
+  const won = payout === 0.5 ? null : payout === 1;
   const pnl = (payout - bet.avgPrice) * bet.shares;
-  return { won, pnl };
+  return { outcomeIndex, won, pnl };
 }

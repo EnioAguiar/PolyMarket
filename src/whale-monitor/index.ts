@@ -32,6 +32,7 @@ import {
   fetchLargeTrades,
   classifyWallet,
   fetchOutcomesByCondition,
+  fetchClobOutcome,
   scoreBet,
   type RawTrade,
 } from '../research/whale-signal.js';
@@ -74,6 +75,14 @@ function ensureSchema(): void {
   `);
   db.run(sql`CREATE INDEX IF NOT EXISTS idx_whale_bets_resolved ON whale_bets(resolved)`);
   db.run(sql`CREATE INDEX IF NOT EXISTS idx_whale_bets_condition ON whale_bets(condition_id)`);
+  // Bets ingested with the feed's bogus outcome_index=999 were all scored
+  // as losses before scoring matched by token id (2026-10-15). Reopen them
+  // so the backfill re-scores them; it writes the real outcome_index, so
+  // this only ever touches each bad row once.
+  const reopened = db.run(
+    sql`UPDATE whale_bets SET resolved = 0, resolved_at = NULL, won = NULL, pnl = NULL WHERE outcome_index = 999 AND resolved = 1`
+  );
+  if (reopened.changes > 0) console.log(`[monitor] Reopened ${reopened.changes} bets with outcome_index=999 for re-scoring.`);
 }
 
 let lastSeenTimestamp = 0;
@@ -150,16 +159,33 @@ async function backfillResolutions(): Promise<void> {
   const uniqueConditions = [...new Set(pending.map((b) => b.conditionId))];
   const outcomes = await fetchOutcomesByCondition(uniqueConditions);
 
+  // Gamma doesn't list some markets the feed reports with outcome_index=999
+  // (combo-related); ask the CLOB for just those. Restricted to 999 rows so
+  // ordinary still-open markets don't cost one proxied request each.
+  // Parlay ("X AND Y") trades carry a zero-padded synthetic condition_id
+  // that 404s on the CLOB too -- they stay pending; one summary line per
+  // cycle instead of one error per bet.
+  const clobConditions = [
+    ...new Set(pending.filter((b) => b.outcomeIndex === 999 && !outcomes.has(b.conditionId)).map((b) => b.conditionId)),
+  ];
+  let clobFailures = 0;
+  for (const conditionId of clobConditions) {
+    try {
+      const outcome = await fetchClobOutcome(conditionId);
+      if (outcome) outcomes.set(conditionId, outcome);
+    } catch {
+      clobFailures++;
+    }
+  }
+  if (clobFailures > 0) console.log(`[monitor] CLOB lookup failed for ${clobFailures}/${clobConditions.length} outcome_index=999 markets (parlays stay pending).`);
+
   let resolvedCount = 0;
   for (const bet of pending) {
-    const outcome = outcomes.get(bet.conditionId);
-    const result = scoreBet(
-      { outcomeIndex: bet.outcomeIndex, avgPrice: bet.avgPrice, shares: bet.shares } as never,
-      outcome
-    );
+    const result = scoreBet(bet, outcomes.get(bet.conditionId));
     if (!result) continue;
     db.update(whaleBets)
       .set({
+        outcomeIndex: result.outcomeIndex,
         resolved: true,
         resolvedAt: Math.floor(Date.now() / 1000),
         won: result.won,

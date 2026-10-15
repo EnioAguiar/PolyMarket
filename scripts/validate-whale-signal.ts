@@ -105,11 +105,11 @@ async function main(): Promise<void> {
       eventAgg.n++;
       byEvent.set(c.eventSlug, eventAgg);
       console.log(
-        `[whale:${label}] "${c.title.slice(0, 55)}" wallet=${c.wallet.slice(0, 10)} staked=$${c.usdStaked.toFixed(0)} price=${c.avgPrice.toFixed(2)} ${won ? 'WON' : 'LOST'} pnl=$${pnl.toFixed(0)} tradesBefore=${c.tradesBefore} gapDays=${c.gapDays?.toFixed(1) ?? 'n/a'}`
+        `[whale:${label}] "${c.title.slice(0, 55)}" wallet=${c.wallet.slice(0, 10)} staked=$${c.usdStaked.toFixed(0)} price=${c.avgPrice.toFixed(2)} ${won === null ? 'VOID' : won ? 'WON' : 'LOST'} pnl=$${pnl.toFixed(0)} tradesBefore=${c.tradesBefore} gapDays=${c.gapDays?.toFixed(1) ?? 'n/a'}`
       );
     }
 
-    console.log(`\n[${label}] Scored ${scored} candidates (${skippedUnresolved} skipped: market not yet resolved to a clean 0/1 winner).`);
+    console.log(`\n[${label}] Scored ${scored} candidates (${skippedUnresolved} skipped: market not yet settled).`);
     console.log(`[${label}] Distinct real-world events (by Gamma eventSlug): ${byEvent.size} -- this, not the bet count, is the real sample size for statistical confidence.`);
     const clustered = [...byEvent.entries()].filter(([, v]) => v.n >= 3).sort((a, b) => b[1].n - a[1].n);
     if (clustered.length > 0) {
