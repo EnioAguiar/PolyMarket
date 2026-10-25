@@ -34,6 +34,13 @@ const proxyUrl = process.env.POLYMARKET_PROXY_URL;
 if (proxyUrl) {
   https.globalAgent = new ProxyAgent({ getProxyForUrl: () => proxyUrl }) as unknown as https.Agent;
 }
+// Gamma bypasses the proxy: measured 2026-10-25, the SOCKS proxy resets the
+// TLS handshake to gamma-api.polymarket.com on ~2 of 3 attempts (data-api
+// and clob go through fine), and the resolution backfill needs ~30 Gamma
+// calls in a row, so every cycle aborted and nothing resolved after
+// 2026-10-21. Gamma is read-only market metadata, not geoblocked, and a
+// few dozen calls per 15 min is no rate-limit risk for the Railway IP.
+const directAgent = new https.Agent({ keepAlive: true });
 
 export const DATA_API = 'https://data-api.polymarket.com/v2';
 export const GAMMA_API = 'https://gamma-api.polymarket.com';
@@ -61,10 +68,13 @@ export interface RawTrade {
 // titles per trade) and compress ~4x -- measured live, 2026-10-07: a
 // 200-trade page is 159 KB plain vs 35 KB gzipped. Every byte here is
 // billed when POLYMARKET_PROXY_URL is set.
-function httpsGetJson<T>(url: string): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: T | null }> {
+function httpsGetJson<T>(
+  url: string,
+  agent: https.Agent | undefined
+): Promise<{ status: number; headers: Record<string, string | string[] | undefined>; body: T | null }> {
   return new Promise((resolve, reject) => {
     https
-      .get(url, { headers: { 'Accept-Encoding': 'gzip' } }, (res) => {
+      .get(url, { agent, headers: { 'Accept-Encoding': 'gzip' } }, (res) => {
         const chunks: Buffer[] = [];
         res.on('data', (chunk: Buffer) => {
           chunks.push(chunk);
@@ -88,9 +98,10 @@ function httpsGetJson<T>(url: string): Promise<{ status: number; headers: Record
   });
 }
 
-export async function fetchJson<T>(url: string): Promise<T> {
+export async function fetchJson<T>(url: string, opts: { direct?: boolean } = {}): Promise<T> {
+  const agent = opts.direct ? directAgent : undefined;
   for (let attempt = 1; attempt <= 4; attempt++) {
-    const { status, headers, body } = await httpsGetJson<T>(url);
+    const { status, headers, body } = await httpsGetJson<T>(url, agent);
     if (status >= 200 && status < 300) return body as T;
     if (status === 429 || status === 503 || status === 500) {
       const retryAfterHeader = headers['retry-after'];
@@ -274,7 +285,7 @@ export async function fetchOutcomesByCondition(conditionIds: string[]): Promise<
     const chunk = conditionIds.slice(i, i + CHUNK);
     const params = chunk.map((id) => `condition_ids=${id}`).join('&');
     const url = `${GAMMA_API}/markets?${params}&closed=true`;
-    const rows = await fetchJson<RawGammaMarket[]>(url);
+    const rows = await fetchJson<RawGammaMarket[]>(url, { direct: true });
     for (const raw of rows) {
       result.set(raw.conditionId, {
         closed: raw.closed ?? false,

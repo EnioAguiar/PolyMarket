@@ -276,7 +276,7 @@ Chaves opcionais do pipeline de research (news/social/cripto, não conectado ao 
 Variáveis de ambiente adicionais do `src/whale-monitor/` (serviço Railway separado, ver Sub-projeto 5):
 
 ```
-POLYMARKET_PROXY_URL  # mesmo proxy do bot, evita rate-limit por IP compartilhado do Railway
+POLYMARKET_PROXY_URL  # mesmo proxy do bot, evita rate-limit por IP compartilhado do Railway (data-api e CLOB; a Gamma vai direto, o proxy derruba o TLS dela em ~2 de 3 tentativas)
 MONITOR_TOKEN         # opcional — protege /stats e /download com ?token=
 DB_PATH               # opcional — default /data/polymarket.db (mesmo default do bot, mas serviços separados = volumes separados; recomendo setar explícito, ex. /data/whale-monitor.db, pra evitar confusão)
 MIN_BET_USD           # opcional — default 20000
